@@ -1,7 +1,7 @@
 {
   "name": "car-rent-be",
   "version": "1.0.0",
-  "description": "CarRent backend - Hệ thống cho thuê xe ô tô (Node.js + Express + Prisma + PostgreSQL)",
+  "description": "CarRent backend - Hệ thống cho thuê xe ô tô (Node.js + Express + Prisma + MySQL)",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -11,6 +11,7 @@
     "format": "prettier --write src/",
     "test": "jest --runInBand",
     "prisma:generate": "prisma generate",
+    "prisma:format": "prisma format",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "node prisma/seed.js",

@@ -6,7 +6,7 @@ export const listCarsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).optional(),
   search: z.string().optional(),
   brandId: z.coerce.number().int().optional(),
-  categoryId: z.coerce.number().int().optional(),
+  modelId: z.coerce.number().int().optional(),
   stationId: z.coerce.number().int().optional(),
   transmission: z.enum(['AUTO', 'MANUAL']).optional(),
   fuelType: z.enum(['GASOLINE', 'DIESEL', 'HYBRID', 'ELECTRIC']).optional(),
@@ -18,8 +18,9 @@ export const listCarsQuerySchema = z.object({
 
 export const createCarSchema = z.object({
   brandId: z.number().int(),
-  categoryId: z.number().int(),
+  modelId: z.number().int().optional(),
   stationId: z.number().int().optional(),
+  depositAmount: z.number().nonnegative().optional(),
   name: z.string().min(2).max(200),
   slug: z.string().min(2).max(220),
   modelYear: z.number().int().min(1990).max(new Date().getFullYear() + 1),

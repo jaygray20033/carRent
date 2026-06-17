@@ -22,13 +22,15 @@ export const carService = {
     const where = {};
 
     if (filters.search) {
+      // MySQL utf8mb4_0900_ai_ci collation is case-insensitive by default,
+      // so `mode: 'insensitive'` (Postgres-only) is not needed.
       where.OR = [
-        { name: { contains: filters.search, mode: 'insensitive' } },
-        { licensePlate: { contains: filters.search, mode: 'insensitive' } },
+        { name: { contains: filters.search } },
+        { licensePlate: { contains: filters.search } },
       ];
     }
     if (filters.brandId) where.brandId = filters.brandId;
-    if (filters.categoryId) where.categoryId = filters.categoryId;
+    if (filters.modelId) where.modelId = filters.modelId;
     if (filters.stationId) where.stationId = filters.stationId;
     if (filters.transmission) where.transmission = filters.transmission;
     if (filters.fuelType) where.fuelType = filters.fuelType;
@@ -40,15 +42,15 @@ export const carService = {
     }
 
     const [total, items] = await Promise.all([
-      prisma.car.count({ where }),
-      prisma.car.findMany({
+      prisma.vehicle.count({ where }),
+      prisma.vehicle.findMany({
         where,
         skip,
         take: limit,
         orderBy: buildOrderBy(filters.sort),
         include: {
           brand: true,
-          category: true,
+          model: true,
           station: { select: { id: true, name: true, city: true } },
           images: { orderBy: { sortOrder: 'asc' } },
         },
@@ -59,28 +61,28 @@ export const carService = {
   },
 
   async getById(id) {
-    const car = await prisma.car.findUnique({
+    const car = await prisma.vehicle.findUnique({
       where: { id: BigInt(id) },
       include: {
         brand: true,
-        category: true,
+        model: true,
         station: true,
         images: { orderBy: { sortOrder: 'asc' } },
       },
     });
-    if (!car) throw new NotFoundError('Car');
+    if (!car) throw new NotFoundError('Vehicle');
     return car;
   },
 
   async create(data) {
-    return prisma.car.create({ data });
+    return prisma.vehicle.create({ data });
   },
 
   async update(id, data) {
-    return prisma.car.update({ where: { id: BigInt(id) }, data });
+    return prisma.vehicle.update({ where: { id: BigInt(id) }, data });
   },
 
   async delete(id) {
-    return prisma.car.delete({ where: { id: BigInt(id) } });
+    return prisma.vehicle.delete({ where: { id: BigInt(id) } });
   },
 };

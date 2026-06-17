@@ -3,9 +3,10 @@ import { z } from 'zod';
 
 export const createBookingSchema = z
   .object({
-    carId: z.union([z.string(), z.number()]).transform((v) => v.toString()),
+    vehicleId: z.union([z.string(), z.number()]).transform((v) => v.toString()),
     pickupStationId: z.number().int().optional(),
     dropoffStationId: z.number().int().optional(),
+    insurancePlanId: z.number().int().optional(),
     rentalType: z.enum(['SELF_DRIVE', 'WITH_DRIVER']).default('SELF_DRIVE'),
     pickupAt: z.string().datetime(),
     returnAt: z.string().datetime(),

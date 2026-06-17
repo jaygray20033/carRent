@@ -15,15 +15,17 @@ const calcTotalDays = (pickupAt, returnAt) => {
 
 export const bookingService = {
   async create(userId, payload) {
-    const car = await prisma.car.findUnique({ where: { id: BigInt(payload.carId) } });
-    if (!car) throw new NotFoundError('Car');
+    const car = await prisma.vehicle.findUnique({
+      where: { id: BigInt(payload.vehicleId ?? payload.carId) },
+    });
+    if (!car) throw new NotFoundError('Vehicle');
     if (car.status !== 'AVAILABLE')
-      throw new ConflictError('Car is not available', 'CAR_NOT_AVAILABLE');
+      throw new ConflictError('Vehicle is not available', 'CAR_NOT_AVAILABLE');
 
-    // Conflict check — overlapping bookings on same car
+    // Conflict check — overlapping bookings on same vehicle
     const overlap = await prisma.booking.findFirst({
       where: {
-        carId: car.id,
+        vehicleId: car.id,
         status: { in: ['PENDING_PAYMENT', 'CONFIRMED', 'IN_USE'] },
         AND: [
           { pickupAt: { lt: new Date(payload.returnAt) } },
@@ -31,7 +33,7 @@ export const bookingService = {
         ],
       },
     });
-    if (overlap) throw new ConflictError('Car is booked for that period', 'CAR_BOOKED');
+    if (overlap) throw new ConflictError('Vehicle is booked for that period', 'CAR_BOOKED');
 
     const totalDays = calcTotalDays(payload.pickupAt, payload.returnAt);
     const pricePerDay = Number(car.pricePerDay);
@@ -43,9 +45,10 @@ export const bookingService = {
       data: {
         bookingCode: generateBookingCode(),
         userId: BigInt(userId),
-        carId: car.id,
+        vehicleId: car.id,
         pickupStationId: payload.pickupStationId || car.stationId || null,
         dropoffStationId: payload.dropoffStationId || car.stationId || null,
+        insurancePlanId: payload.insurancePlanId || null,
         rentalType: payload.rentalType,
         pickupAt: new Date(payload.pickupAt),
         returnAt: new Date(payload.returnAt),
@@ -56,8 +59,11 @@ export const bookingService = {
         totalAmount,
         status: 'PENDING_PAYMENT',
         note: payload.note,
+        histories: {
+          create: { toStatus: 'PENDING_PAYMENT', changedBy: BigInt(userId), note: 'Booking created' },
+        },
       },
-      include: { car: { include: { brand: true, category: true } } },
+      include: { vehicle: { include: { brand: true, model: true } } },
     });
 
     return booking;
@@ -76,7 +82,7 @@ export const bookingService = {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          car: { include: { brand: true, category: true } },
+          vehicle: { include: { brand: true, model: true } },
           pickupStation: true,
           dropoffStation: true,
         },
@@ -89,9 +95,10 @@ export const bookingService = {
     const booking = await prisma.booking.findUnique({
       where: { id: BigInt(id) },
       include: {
-        car: { include: { brand: true, category: true, images: true } },
+        vehicle: { include: { brand: true, model: true, images: true } },
         pickupStation: true,
         dropoffStation: true,
+        insurancePlan: true,
         payments: true,
       },
     });
@@ -111,7 +118,18 @@ export const bookingService = {
 
     return prisma.booking.update({
       where: { id: booking.id },
-      data: { status: 'CANCELLED', cancelReason: reason || 'User cancelled' },
+      data: {
+        status: 'CANCELLED',
+        cancelReason: reason || 'User cancelled',
+        histories: {
+          create: {
+            fromStatus: booking.status,
+            toStatus: 'CANCELLED',
+            changedBy: BigInt(userId),
+            note: reason || 'User cancelled',
+          },
+        },
+      },
     });
   },
 };
