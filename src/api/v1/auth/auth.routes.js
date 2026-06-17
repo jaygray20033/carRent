@@ -9,15 +9,22 @@ import {
   loginSchema,
   refreshSchema,
   verifyOtpSchema,
+  resendOtpSchema,
 } from './auth.validator.js';
 
 const router = Router();
 
+// UC-01 / UC-02 / UC-03 — 4 core POST endpoints
 router.post('/register', validate(registerSchema), asyncHandler(authController.register));
 router.post('/login', validate(loginSchema), asyncHandler(authController.login));
+router.post('/verify-otp', validate(verifyOtpSchema), asyncHandler(authController.verifyOtp));
+router.post('/resend-otp', validate(resendOtpSchema), asyncHandler(authController.resendOtp));
+
+// Token lifecycle
 router.post('/refresh-token', validate(refreshSchema), asyncHandler(authController.refreshToken));
 router.post('/logout', asyncHandler(authController.logout));
-router.post('/verify-otp', validate(verifyOtpSchema), asyncHandler(authController.verifyOtp));
+
+// Current user
 router.get('/me', authenticate, asyncHandler(authController.me));
 
 export default router;
