@@ -58,6 +58,12 @@ const sanitizeUser = (u) => {
 const sha256 = (s) => createHash('sha256').update(s).digest('hex');
 
 /**
+ * Deterministic hash of a refresh token jti so the corresponding DB row can be
+ * located again (for rotation / revocation). We never store the raw token.
+ */
+const jtiHash = (jti) => sha256(`jti:${jti}`);
+
+/**
  * Issue access + refresh tokens, persist refresh token in DB + Redis whitelist.
  */
 const issueTokens = async (user, meta = {}) => {
@@ -68,11 +74,12 @@ const issueTokens = async (user, meta = {}) => {
   const refreshTtl = durationToSeconds(env.JWT_REFRESH_EXPIRES);
   const expiresAt = new Date(Date.now() + refreshTtl * 1000);
 
-  // Persist to DB (store hash of token, never plain)
+  // Persist to DB. tokenHash = sha256(jti) so we can find/revoke this exact
+  // token later by its jti (the raw token is never stored).
   await prisma.refreshToken.create({
     data: {
       userId: user.id,
-      tokenHash: sha256(`${jti}.${refreshToken}`),
+      tokenHash: jtiHash(jti),
       deviceInfo: meta.deviceInfo || null,
       ipAddress: meta.ipAddress || null,
       expiresAt,
@@ -87,6 +94,52 @@ const issueTokens = async (user, meta = {}) => {
   }
 
   return { accessToken, refreshToken };
+};
+
+/**
+ * Revoke a single refresh token by its jti: remove from Redis whitelist and
+ * mark its DB row as revoked.
+ */
+const revokeRefreshToken = async (userId, jti) => {
+  await redis.del(rtKey(userId.toString(), jti)).catch(() => {});
+  await prisma.refreshToken
+    .updateMany({
+      where: { userId: BigInt(userId), tokenHash: jtiHash(jti), revokedAt: null },
+      data: { revokedAt: new Date() },
+    })
+    .catch(() => {});
+};
+
+/**
+ * Revoke ALL refresh tokens for a user — used after a password reset.
+ * Clears every Redis whitelist entry (rt:{userId}:*) and deletes the DB rows.
+ */
+const revokeAllRefreshTokens = async (userId) => {
+  const uid = userId.toString();
+
+  // 1) Clear Redis whitelist entries rt:{userId}:*
+  try {
+    if (typeof redis.scanStream === 'function') {
+      await new Promise((resolve, reject) => {
+        const stream = redis.scanStream({ match: rtKey(uid, '*'), count: 100 });
+        const keys = [];
+        stream.on('data', (batch) => keys.push(...batch));
+        stream.on('end', async () => {
+          if (keys.length) await redis.del(...keys).catch(() => {});
+          resolve();
+        });
+        stream.on('error', reject);
+      });
+    } else {
+      const keys = await redis.keys(rtKey(uid, '*')).catch(() => []);
+      if (keys.length) await redis.del(...keys).catch(() => {});
+    }
+  } catch {
+    /* Redis optional — DB delete below is the source of truth */
+  }
+
+  // 2) Delete all DB refresh tokens for this user
+  await prisma.refreshToken.deleteMany({ where: { userId: BigInt(uid) } }).catch(() => {});
 };
 
 // --------------------------------------------------------------------------
@@ -310,7 +363,9 @@ export const authService = {
   },
 
   /**
-   * Refresh access token using a valid refresh token (checks Redis whitelist).
+   * Refresh access token using a valid refresh token.
+   * Verifies signature → checks Redis whitelist + DB row → rotates
+   * (issues a new pair and revokes the old jti).
    */
   async refreshToken({ refreshToken }, meta = {}) {
     let payload;
@@ -320,9 +375,27 @@ export const authService = {
       throw new UnauthorizedError('Invalid refresh token', 'INVALID_REFRESH');
     }
 
-    // Check whitelist
-    const whitelisted = await redis.get(rtKey(payload.sub, payload.jti)).catch(() => '1');
-    if (whitelisted === null) {
+    // 1) Check Redis whitelist. `null` means the key was explicitly removed
+    //    (revoked / rotated / logged out). On a Redis error we fall back to DB.
+    let redisOk = true;
+    const whitelisted = await redis.get(rtKey(payload.sub, payload.jti)).catch(() => {
+      redisOk = false;
+      return null;
+    });
+    if (redisOk && whitelisted === null) {
+      throw new UnauthorizedError('Refresh token revoked', 'REFRESH_REVOKED');
+    }
+
+    // 2) Check DB row exists and is still valid (not revoked, not expired).
+    const dbToken = await prisma.refreshToken.findFirst({
+      where: {
+        userId: BigInt(payload.sub),
+        tokenHash: jtiHash(payload.jti),
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!dbToken) {
       throw new UnauthorizedError('Refresh token revoked', 'REFRESH_REVOKED');
     }
 
@@ -332,24 +405,128 @@ export const authService = {
     });
     if (!user) throw new UnauthorizedError('User not found', 'USER_NOT_FOUND');
 
-    // Rotate: revoke old jti, issue new pair
-    await redis.del(rtKey(payload.sub, payload.jti)).catch(() => {});
+    // 3) Rotate: revoke old jti (Redis + DB) then issue a fresh pair.
+    await revokeRefreshToken(payload.sub, payload.jti);
     const tokens = await issueTokens(user, meta);
     return tokens;
   },
 
   /**
-   * Logout: revoke refresh token (Redis whitelist + DB).
+   * Logout: revoke the current refresh token (Redis whitelist + DB row).
    */
   async logout({ refreshToken } = {}) {
     if (!refreshToken) return { loggedOut: true };
     try {
       const payload = verifyRefreshToken(refreshToken);
-      await redis.del(rtKey(payload.sub, payload.jti)).catch(() => {});
+      await revokeRefreshToken(payload.sub, payload.jti);
     } catch {
       /* ignore invalid token on logout */
     }
     return { loggedOut: true };
+  },
+
+  /**
+   * UC-04 Forgot password: nhận identifier → nếu user tồn tại thì sinh OTP
+   * purpose=RESET và enqueue gửi. LUÔN trả 200 OK dù user tồn tại hay không
+   * (chống user enumeration §UC-04).
+   */
+  async forgotPassword({ identifier }) {
+    const cooldownKey = otpResendKey(identifier);
+
+    const user = await prisma.user
+      .findFirst({ where: { OR: [{ phone: identifier }, { email: identifier }] } })
+      .catch(() => null);
+
+    if (user) {
+      // Honour resend cooldown silently (do not leak existence via 429 here).
+      const onCooldown = await redis.get(cooldownKey).catch(() => null);
+      if (!onCooldown) {
+        const code = generateOtp();
+        const codeHash = await hashOtp(code);
+        await redis
+          .set(otpKey('RESET', identifier), JSON.stringify({ codeHash, attempts: 0 }), 'EX', OTP_TTL)
+          .catch(() => {});
+        await redis.set(cooldownKey, '1', 'EX', OTP_RESEND_COOLDOWN).catch(() => {});
+        await enqueueSendOtp({ to: identifier, code, purpose: 'RESET', ttl: OTP_TTL });
+      }
+    }
+
+    // Always the same response → no enumeration.
+    return {
+      requested: true,
+      identifier,
+      otpPurpose: 'RESET',
+      message: 'If an account exists, a reset OTP has been sent.',
+    };
+  },
+
+  /**
+   * UC-04 Reset password: verify OTP (purpose=RESET) → cập nhật password_hash →
+   * revoke toàn bộ RefreshToken của user (xóa Redis whitelist + xóa DB).
+   */
+  async resetPassword({ identifier, code, newPassword }) {
+    // OTP lock check (shared with verifyOtp)
+    const locked = await redis.get(otpLockKey(identifier)).catch(() => null);
+    if (locked) {
+      const ttl = await redis.ttl(otpLockKey(identifier)).catch(() => OTP_LOCK_SECONDS);
+      throw new ForbiddenError(
+        `Too many wrong OTP attempts. Locked for ${Math.max(ttl, 0)}s`,
+        'OTP_LOCKED'
+      );
+    }
+
+    const key = otpKey('RESET', identifier);
+    const raw = await redis.get(key).catch(() => null);
+    if (!raw) throw new GoneError('OTP expired or not found', 'OTP_EXPIRED');
+
+    const record = JSON.parse(raw);
+    const match = await compareOtp(code, record.codeHash);
+
+    if (!match) {
+      const attempts = (record.attempts || 0) + 1;
+      if (attempts >= OTP_MAX_ATTEMPTS) {
+        await redis.del(key).catch(() => {});
+        await redis.set(otpLockKey(identifier), '1', 'EX', OTP_LOCK_SECONDS).catch(() => {});
+        throw new ForbiddenError(
+          'Too many wrong OTP attempts. Identifier locked for 30 minutes.',
+          'OTP_LOCKED'
+        );
+      }
+      const ttl = await redis.ttl(key).catch(() => OTP_TTL);
+      await redis
+        .set(key, JSON.stringify({ ...record, attempts }), 'EX', ttl > 0 ? ttl : OTP_TTL)
+        .catch(() => {});
+      throw new UnprocessableError('Invalid OTP code', 'OTP_INVALID', {
+        attemptsLeft: OTP_MAX_ATTEMPTS - attempts,
+      });
+    }
+
+    // OTP correct → find the user (must exist at this stage).
+    const user = await prisma.user.findFirst({
+      where: { OR: [{ phone: identifier }, { email: identifier }] },
+    });
+    if (!user) {
+      await redis.del(key).catch(() => {});
+      throw new NotFoundError('User');
+    }
+
+    // Update password hash.
+    const passwordHash = await hashPassword(newPassword);
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+
+    // Clean up OTP + lock keys.
+    await redis.del(key).catch(() => {});
+    await redis.del(otpLockKey(identifier)).catch(() => {});
+    await redis.del(otpResendKey(identifier)).catch(() => {});
+
+    // Revoke ALL refresh tokens (Redis whitelist + DB) — force re-login.
+    await revokeAllRefreshTokens(user.id);
+
+    return {
+      reset: true,
+      identifier,
+      message: 'Password has been reset. Please log in again.',
+    };
   },
 };
 

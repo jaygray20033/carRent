@@ -55,3 +55,19 @@ export const resendOtpSchema = z.object({
 export const refreshSchema = z.object({
   refreshToken: z.string().min(10),
 });
+
+// UC-04 — Forgot password: only the identifier (email|phone).
+export const forgotPasswordSchema = z.object({
+  identifier: identifierSchema,
+});
+
+// UC-04 — Reset password: identifier + OTP code + new password.
+export const resetPasswordSchema = z.object({
+  identifier: identifierSchema,
+  code: z.string().regex(/^\d{6}$/, 'OTP code must be 6 digits'),
+  newPassword: z
+    .string()
+    .min(8, 'Password must be at least 8 chars')
+    .regex(/[A-Za-z]/, 'Password must contain a letter')
+    .regex(/\d/, 'Password must contain a number'),
+});

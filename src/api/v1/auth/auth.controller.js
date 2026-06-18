@@ -41,6 +41,18 @@ export const authController = {
     return success(res, data, 'Logged out');
   },
 
+  // UC-04 — Forgot password (anti-enumeration: always 200 OK)
+  forgotPassword: async (req, res) => {
+    const data = await authService.forgotPassword(req.body);
+    return success(res, data, 'If an account exists, a reset OTP has been sent.');
+  },
+
+  // UC-04 — Reset password (verify OTP + set new password + revoke all sessions)
+  resetPassword: async (req, res) => {
+    const data = await authService.resetPassword(req.body);
+    return success(res, data, 'Password reset successfully');
+  },
+
   me: async (req, res) => {
     return success(res, { user: req.user }, 'Current user');
   },
