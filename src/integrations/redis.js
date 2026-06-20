@@ -7,19 +7,34 @@ const globalForRedis = globalThis;
 
 /**
  * Singleton ioredis client.
- * Uses ENV REDIS_URL (e.g. redis://localhost:6379).
- * Lazy-connect so the app can boot even if Redis is briefly unavailable.
+ * If REDIS_URL is empty, returns a noop stub so the app can run without Redis.
  */
 function createClient() {
   if (!env.REDIS_URL) {
-    logger.warn('⚠️  REDIS_URL is empty — Redis features (OTP, login lock, RT whitelist) will fail.');
+    logger.warn('⚠️  REDIS_URL is empty — using noop Redis stub.');
+    return {
+      get: async () => null,
+      set: async () => 'OK',
+      del: async () => 0,
+      setex: async () => 'OK',
+      incr: async () => 1,
+      expire: async () => 1,
+      ttl: async () => -1,
+      exists: async () => 0,
+      on: () => {},
+      quit: async () => {},
+      status: 'noop',
+    };
   }
 
-  const client = new Redis(env.REDIS_URL || 'redis://localhost:6379', {
+  const client = new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: 2,
     enableReadyCheck: true,
     lazyConnect: false,
-    retryStrategy: (times) => Math.min(times * 200, 2000),
+    retryStrategy: (times) => {
+      if (times > 3) return null; // stop retrying after 3 attempts
+      return Math.min(times * 200, 2000);
+    },
   });
 
   client.on('connect', () => logger.info('✓ Redis connected'));
