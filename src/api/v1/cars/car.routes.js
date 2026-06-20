@@ -1,81 +1,97 @@
 // src/api/v1/cars/car.routes.js
 import { Router } from 'express';
-import prisma from '../../../config/db.js';
 import { asyncHandler } from '../../../middlewares/asyncHandler.js';
-import { success } from '../../../utils/apiResponse.js';
-import { parsePagination, paginatedResponse } from '../../../utils/pagination.js';
+import { validate } from '../../../middlewares/validate.middleware.js';
+import { carController } from './car.controller.js';
+import { listCarsQuerySchema, searchQuerySchema } from './car.validator.js';
 
 const router = Router();
 
 /**
- * GET /cars?page=1&size=20&brand=&category=&station=&featured=&tag=XE_DOI_MOI
+ * @swagger
+ * /cars:
+ *   get:
+ *     tags: [Cars]
+ *     summary: List vehicles with filter & sort (UC-10, UC-11)
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema: { type: string }
+ *       - in: query
+ *         name: brand
+ *         schema: { type: string }
+ *       - in: query
+ *         name: transmission
+ *         schema: { type: string, enum: [AUTO, MANUAL] }
+ *       - in: query
+ *         name: fuel
+ *         schema: { type: string, enum: [GASOLINE, DIESEL, HYBRID, ELECTRIC] }
+ *       - in: query
+ *         name: seats_min
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: seats_max
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: price_min
+ *         schema: { type: number }
+ *       - in: query
+ *         name: price_max
+ *         schema: { type: number }
+ *       - in: query
+ *         name: station_id
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: q
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string, enum: [price_asc, price_desc, newest, popular, rating] }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 12 }
+ *     responses:
+ *       200: { description: Paginated list of vehicles }
  */
-router.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    const { brand, category, station, featured, tag, minPrice, maxPrice, q } = req.query;
-    const { page, size, skip, orderBy } = parsePagination(req.query);
-
-    const where = { status: 'AVAILABLE' };
-
-    if (brand) where.brand = { slug: brand };
-    if (category) where.category = { slug: category };
-    if (station) where.stationId = Number(station);
-    if (featured === 'true') where.isFeatured = true;
-    if (tag) where.featuredTag = tag;
-    if (minPrice || maxPrice) {
-      where.pricePerDay = {};
-      if (minPrice) where.pricePerDay.gte = Number(minPrice);
-      if (maxPrice) where.pricePerDay.lte = Number(maxPrice);
-    }
-    if (q) {
-      where.OR = [{ name: { contains: q } }, { description: { contains: q } }];
-    }
-
-    const [items, total] = await Promise.all([
-      prisma.vehicle.findMany({
-        where,
-        include: {
-          brand: { select: { id: true, name: true, slug: true, logoUrl: true } },
-          category: { select: { id: true, name: true, slug: true } },
-          model: { select: { id: true, name: true, slug: true } },
-          station: { select: { id: true, name: true, city: true } },
-        },
-        orderBy: orderBy || [{ createdAt: 'desc' }],
-        skip,
-        take: size,
-      }),
-      prisma.vehicle.count({ where }),
-    ]);
-
-    return success(res, paginatedResponse(items, total, { page, size }));
-  })
-);
+router.get('/', validate(listCarsQuerySchema, 'query'), asyncHandler(carController.list));
 
 /**
- * GET /cars/:id — vehicle detail
+ * @swagger
+ * /cars/search:
+ *   get:
+ *     tags: [Cars]
+ *     summary: Auto-complete search on vehicle models + brands
+ *     parameters:
+ *       - in: query
+ *         name: q
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 8 }
+ *     responses:
+ *       200: { description: Suggestions { models, brands, vehicles } }
  */
-router.get(
-  '/:id',
-  asyncHandler(async (req, res) => {
-    const vehicle = await prisma.vehicle.findUnique({
-      where: { id: Number(req.params.id) },
-      include: {
-        brand: true,
-        category: true,
-        model: true,
-        station: true,
-        images: { orderBy: { sortOrder: 'asc' } },
-        reviews: {
-          take: 5,
-          orderBy: { createdAt: 'desc' },
-          include: { user: { select: { id: true, fullName: true, avatarUrl: true } } },
-        },
-      },
-    });
-    if (!vehicle) return res.status(404).json({ success: false, message: 'Vehicle not found' });
-    return success(res, { vehicle });
-  })
-);
+router.get('/search', validate(searchQuerySchema, 'query'), asyncHandler(carController.search));
+
+/**
+ * @swagger
+ * /cars/{id}:
+ *   get:
+ *     tags: [Cars]
+ *     summary: Get vehicle detail
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Vehicle detail }
+ *       404: { description: Not found }
+ */
+router.get('/:id', asyncHandler(carController.detail));
 
 export default router;
