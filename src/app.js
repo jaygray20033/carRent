@@ -5,8 +5,10 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
 import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
 
 import { env } from './config/env.js';
+import { swaggerSpec } from './config/swagger.js';
 import v1Router from './api/v1/index.js';
 import { errorHandler, notFound } from './middlewares/error.middleware.js';
 
@@ -43,8 +45,24 @@ app.use(
 );
 
 // Health check
-app.get('/health', (_req, res) =>
-  res.json({ status: 'ok', timestamp: new Date().toISOString() })
+app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+
+// ----- Swagger / OpenAPI docs -----
+const docsPath = `${env.API_PREFIX}/docs`;
+// Raw OpenAPI JSON spec
+app.get(`${docsPath}.json`, (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+// Swagger UI (helmet CSP disabled on this sub-path so the UI assets load)
+app.use(
+  docsPath,
+  helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }),
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    customSiteTitle: 'CarRent API Docs',
+    swaggerOptions: { persistAuthorization: true },
+  })
 );
 
 // Mount v1

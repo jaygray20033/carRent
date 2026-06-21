@@ -5,6 +5,7 @@ import logger from './config/logger.js';
 import prisma from './config/db.js';
 
 const server = app.listen(env.PORT, () => {
+  logger.info(`Server listening on :${env.PORT}`);
   logger.info(`🚗 CarRent API listening on http://localhost:${env.PORT}`);
   logger.info(`   API base: ${env.APP_URL}${env.API_PREFIX}`);
   logger.info(`   Env: ${env.NODE_ENV}`);
