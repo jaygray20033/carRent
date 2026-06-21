@@ -46,7 +46,7 @@ const rtKey = (userId, jti) => `rt:${userId}:${jti}`;
 // --------------------------------------------------------------------------
 const sanitizeUser = (u) => {
   if (!u) return null;
-  const { passwordHash, ...rest } = u;
+  const { passwordHash: _passwordHash, ...rest } = u;
   return {
     ...rest,
     id: rest.id.toString(),

@@ -73,7 +73,7 @@ router.get('/', validate(listCarsQuerySchema, 'query'), asyncHandler(carControll
  *         name: limit
  *         schema: { type: integer, default: 8 }
  *     responses:
- *       200: { description: Suggestions { models, brands, vehicles } }
+ *       200: { description: "Suggestions { models, brands, vehicles }" }
  */
 router.get('/search', validate(searchQuerySchema, 'query'), asyncHandler(carController.search));
 

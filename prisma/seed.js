@@ -6,15 +6,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 const prisma = new PrismaClient();
 
-const slugify = (s) =>
-  s
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
-
 async function main() {
   console.log('🌱 Seeding database (SQLite)...');
 
@@ -226,7 +217,6 @@ async function main() {
   const sedanCat = await prisma.category.findUnique({ where: { slug: 'sedan' } });
   const suvCat = await prisma.category.findUnique({ where: { slug: 'suv' } });
   const sportCat = await prisma.category.findUnique({ where: { slug: 'the-thao' } });
-  const coupeCat = await prisma.category.findUnique({ where: { slug: 'coupe' } });
 
   const vehicleModels = [
     {

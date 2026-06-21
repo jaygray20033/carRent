@@ -198,7 +198,29 @@ export const carService = {
         images: { orderBy: { sortOrder: 'asc' } },
       },
     });
-    if (!car) throw new NotFoundError('Vehicle');
+    // BUG-03 fix: soft-deleted (RETIRED) vehicles must NOT be visible through the
+    // public detail endpoint, even when the exact id is known (old indexed link
+    // or a guessed URL). Treat RETIRED the same as "not found".
+    if (!car || car.status === 'RETIRED') throw new NotFoundError('Vehicle');
+    return car;
+  },
+
+  /**
+   * Get vehicle detail by slug. Like getById(), this is a PUBLIC endpoint, so
+   * RETIRED (soft-deleted) vehicles are hidden (BUG-03).
+   */
+  async getBySlug(slug) {
+    const car = await prisma.vehicle.findUnique({
+      where: { slug },
+      include: {
+        brand: true,
+        model: true,
+        category: true,
+        station: true,
+        images: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+    if (!car || car.status === 'RETIRED') throw new NotFoundError('Vehicle');
     return car;
   },
 
