@@ -81,10 +81,31 @@ Base API URL: `http://localhost:4000/api/v1`
 ### Cars
 
 - `GET /api/v1/cars` — Danh sách + filter (brand, category, priceMin, priceMax, transmission, fuel)
-- `GET /api/v1/cars/:id` — Chi tiết xe
+- `GET /api/v1/cars/search?q=` — Auto-complete (models + brands + vehicles)
+- `GET /api/v1/cars/:id` — Chi tiết xe (theo id)
+- `GET /api/v1/cars/:slug` — Chi tiết xe theo slug: Vehicle + Model + Brand + Station + Category + Images, kèm `deposit`, `rates` (daily / hourly / with_driver_daily / monthly), và `rating` tổng hợp (avg + count, query bảng `Review`; placeholder 0 cho tới T6)
+- `GET /api/v1/cars/:id/similar?limit=4` — Xe tương tự (cùng `category_id` hoặc `brand_id`, loại trừ chính `:id`, mặc định 4 xe)
 - `POST /api/v1/cars` — Tạo xe (admin)
 - `PUT /api/v1/cars/:id` — Cập nhật xe (admin)
 - `DELETE /api/v1/cars/:id` — Xóa xe (admin)
+
+> **Chi tiết `GET /cars/:slug`** — `data.car` gồm:
+>
+> ```jsonc
+> {
+>   "deposit": 38000000, // = depositAmount
+>   "rates": {
+>     "daily": 7800000, // = pricePerDay
+>     "hourly": 1404000, // ~18% giá ngày (derived)
+>     "with_driver_daily": 10920000, // +40% giá ngày (derived)
+>     "monthly": 165000000, // = pricePerMonth (nullable)
+>     "currency": "VND",
+>   },
+>   "rating": { "avg": 0, "count": 0 }, // aggregate từ Review (T6: dữ liệu thật)
+> }
+> ```
+>
+> Lưu ý: schema chỉ lưu `pricePerDay` / `pricePerMonth` / `depositAmount`, nên `hourly` và `with_driver_daily` được **suy ra** từ giá ngày (hệ số `HOURLY_RATE_RATIO`, `WITH_DRIVER_SURCHARGE` trong `car.service.js`).
 
 ### Bookings
 

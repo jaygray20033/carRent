@@ -90,6 +90,40 @@ const listInclude = {
   images: { orderBy: { sortOrder: 'asc' }, take: 1 },
 };
 
+// Multipliers used to derive secondary rates from the base daily price.
+// Schema only stores `pricePerDay` / `pricePerMonth` / `depositAmount`, so the
+// hourly and with-driver rates are derived. Tune these in SiteSetting later.
+const HOURLY_RATE_RATIO = 0.18; // ~18% of daily price per hour
+const WITH_DRIVER_SURCHARGE = 0.4; // +40% on the daily price when a driver is included
+
+/**
+ * Build the rate card returned in the car detail response.
+ * Shape: { daily, hourly, with_driver_daily, monthly, currency }
+ */
+const buildRates = (car) => ({
+  daily: car.pricePerDay,
+  hourly: Math.round((car.pricePerDay * HOURLY_RATE_RATIO) / 1000) * 1000,
+  with_driver_daily: Math.round((car.pricePerDay * (1 + WITH_DRIVER_SURCHARGE)) / 1000) * 1000,
+  monthly: car.pricePerMonth ?? null,
+  currency: 'VND',
+});
+
+/**
+ * Aggregate rating (avg + count) from the Review table for one vehicle.
+ * T6 note: real reviews are seeded later. For now this returns the live
+ * aggregate when reviews exist, otherwise a placeholder of { avg: 0, count: 0 }.
+ */
+const getRatingAggregate = async (vehicleId) => {
+  const agg = await prisma.review.aggregate({
+    where: { vehicleId: Number(vehicleId) },
+    _avg: { rating: true },
+    _count: { _all: true },
+  });
+  const count = agg._count?._all ?? 0;
+  const avg = count > 0 ? Number((agg._avg.rating ?? 0).toFixed(1)) : 0;
+  return { avg, count };
+};
+
 export const carService = {
   /**
    * UC-10 + UC-11 — list with filter, sort, pagination, and 5-min cache.
@@ -203,7 +237,10 @@ export const carService = {
   },
 
   /**
-   * GET /cars/:slug — fetch a vehicle by its slug (includes images).
+   * GET /cars/:slug — vehicle detail.
+   * Returns Vehicle + Model + Brand + Station + Category + Images, the deposit,
+   * a derived rate card (daily / hourly / with_driver_daily), and an aggregated
+   * rating (avg + count) computed from the Review table (placeholder 0 until T6).
    */
   async getBySlug(slug) {
     const car = await prisma.vehicle.findUnique({
@@ -217,10 +254,55 @@ export const carService = {
       },
     });
     if (!car) throw new NotFoundError('Vehicle');
+
+    const rating = await getRatingAggregate(car.id);
+
     return {
       ...car,
       thumbnailUrl: car.thumbnailUrl || car.images?.[0]?.url || null,
+      vehicleModel: car.model || null,
+      deposit: car.depositAmount,
+      rates: buildRates(car),
+      rating, // { avg, count } — aggregated from reviews (T6 placeholder = 0)
     };
+  },
+
+  /**
+   * GET /cars/:id/similar — vehicles sharing the same category_id OR brand_id,
+   * excluding the reference vehicle itself. Only AVAILABLE cars, limit 4,
+   * ordered by popularity then rating.
+   */
+  async getSimilar(id, limit = 4) {
+    const refId = Number(id);
+    const ref = await prisma.vehicle.findUnique({
+      where: { id: refId },
+      select: { id: true, categoryId: true, brandId: true },
+    });
+    if (!ref) throw new NotFoundError('Vehicle');
+
+    const orConditions = [];
+    if (ref.categoryId != null) orConditions.push({ categoryId: ref.categoryId });
+    if (ref.brandId != null) orConditions.push({ brandId: ref.brandId });
+
+    const where = {
+      status: 'AVAILABLE',
+      id: { not: refId },
+      ...(orConditions.length ? { OR: orConditions } : {}),
+    };
+
+    const rows = await prisma.vehicle.findMany({
+      where,
+      take: limit,
+      orderBy: [{ totalBookings: 'desc' }, { rating: 'desc' }, { reviewCount: 'desc' }],
+      include: listInclude,
+    });
+
+    return rows.map((v) => ({
+      ...v,
+      thumbnailUrl: v.thumbnailUrl || v.images?.[0]?.url || null,
+      minPrice: v.pricePerDay,
+      vehicleModel: v.model || null,
+    }));
   },
 
   async create(data) {

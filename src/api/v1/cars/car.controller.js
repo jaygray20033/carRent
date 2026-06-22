@@ -29,11 +29,19 @@ export const carController = {
     return success(res, { car });
   },
 
-  // GET /cars/:slug — detail by slug (images included)
+  // GET /cars/:slug — detail by slug (images, rates, deposit, rating included)
   detailBySlug: async (req, res) => {
     const car = await carService.getBySlug(req.params.slug);
     res.set('Cache-Control', 'public, max-age=120');
     return success(res, { car });
+  },
+
+  // GET /cars/:id/similar — related cars (same category or brand)
+  similar: async (req, res) => {
+    const limit = req.query.limit ? Math.min(Number(req.query.limit), 12) : 4;
+    const cars = await carService.getSimilar(req.params.id, limit);
+    res.set('Cache-Control', 'public, max-age=120');
+    return success(res, { cars });
   },
 
   create: async (req, res) => {

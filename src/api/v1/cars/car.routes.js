@@ -96,6 +96,26 @@ router.get('/:id(\\d+)', asyncHandler(carController.detail));
 
 /**
  * @swagger
+ * /cars/{id}/similar:
+ *   get:
+ *     tags: [Cars]
+ *     summary: List similar vehicles (same category or brand, exclude self)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 4 }
+ *     responses:
+ *       200: { description: Up to 4 similar vehicles }
+ *       404: { description: Reference vehicle not found }
+ */
+router.get('/:id(\\d+)/similar', asyncHandler(carController.similar));
+
+/**
+ * @swagger
  * /cars/{slug}:
  *   get:
  *     tags: [Cars]
