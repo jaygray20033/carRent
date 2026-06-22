@@ -233,6 +233,26 @@ Postman collection: `../OtoRent.postman_collection.json` (folder **Auth**, 7 req
 > - ✅ Require status checks to pass before merging → chọn check **`Lint & Test (Backend)`**
 > - (tuỳ chọn) ✅ Require branches to be up to date before merging
 
+## 🔐 Admin endpoints (Day 8)
+
+Yêu cầu role `ADMIN` hoặc `OPERATOR` (middleware `requireRole`). Xem chi tiết: [`DAY8_NOTES.md`](./DAY8_NOTES.md).
+
+| Method | Endpoint                            | Mô tả                                    |
+| ------ | ----------------------------------- | ---------------------------------------- |
+| GET    | `/api/v1/admin/vehicles?status=&q=` | List vehicle (kèm xe không AVAILABLE)    |
+| POST   | `/api/v1/admin/vehicles`            | Tạo vehicle                              |
+| PATCH  | `/api/v1/admin/vehicles/:id`        | Cập nhật vehicle                         |
+| DELETE | `/api/v1/admin/vehicles/:id`        | Soft delete (`status=RETIRED`)           |
+| POST   | `/api/v1/admin/vehicles/:id/images` | Upload ≤ 10 ảnh (multipart) → URL public |
+| GET    | `/api/v1/admin/vehicle-models?q=`   | List model                               |
+| POST   | `/api/v1/admin/vehicle-models`      | Tạo model                                |
+| PATCH  | `/api/v1/admin/vehicle-models/:id`  | Cập nhật model                           |
+| DELETE | `/api/v1/admin/vehicle-models/:id`  | Xoá model (chặn nếu đang dùng)           |
+| GET    | `/api/v1/cars/:slug`                | Vehicle detail kèm ảnh (public)          |
+
+Storage: AWS S3 (SDK v3) khi cấu hình `S3_BUCKET`, ngược lại fallback local `./uploads` (route tĩnh `/uploads`).
+Multer `uploadImage`: max 5MB, chỉ png/jpg/jpeg/webp.
+
 ## 🛣️ Roadmap (chưa code)
 
 - Wallet & wallet transactions
@@ -243,8 +263,8 @@ Postman collection: `../OtoRent.postman_collection.json` (folder **Auth**, 7 req
 - Rescue requests
 - Agent applications
 - Notifications
-- Admin dashboard endpoints
+- Admin dashboard endpoints (mở rộng)
 - Background jobs (BullMQ): email/SMS workers
 - Real payment gateway integration (VNPay/Momo/ZaloPay)
-- S3 upload middleware
+- ~~S3 upload middleware~~ ✅ Done (Day 8)
 - Full unit + integration tests

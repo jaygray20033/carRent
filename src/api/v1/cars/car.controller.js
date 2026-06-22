@@ -29,6 +29,13 @@ export const carController = {
     return success(res, { car });
   },
 
+  // GET /cars/:slug — detail by slug (images included)
+  detailBySlug: async (req, res) => {
+    const car = await carService.getBySlug(req.params.slug);
+    res.set('Cache-Control', 'public, max-age=120');
+    return success(res, { car });
+  },
+
   create: async (req, res) => {
     const car = await carService.create(req.body);
     return created(res, { car }, 'Car created');

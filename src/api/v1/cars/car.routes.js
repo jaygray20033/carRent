@@ -92,6 +92,23 @@ router.get('/search', validate(searchQuerySchema, 'query'), asyncHandler(carCont
  *       200: { description: Vehicle detail }
  *       404: { description: Not found }
  */
-router.get('/:id', asyncHandler(carController.detail));
+router.get('/:id(\\d+)', asyncHandler(carController.detail));
+
+/**
+ * @swagger
+ * /cars/{slug}:
+ *   get:
+ *     tags: [Cars]
+ *     summary: Get vehicle detail by slug (includes images) — DoD Day 8
+ *     parameters:
+ *       - in: path
+ *         name: slug
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Vehicle detail with images }
+ *       404: { description: Not found }
+ */
+router.get('/:slug', asyncHandler(carController.detailBySlug));
 
 export default router;

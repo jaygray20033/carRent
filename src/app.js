@@ -1,4 +1,5 @@
 // src/app.js — Express app setup
+import path from 'node:path';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -41,6 +42,16 @@ app.use(
     max: env.RATE_LIMIT_MAX,
     standardHeaders: true,
     legacyHeaders: false,
+  })
+);
+
+// Static files for locally-stored uploads (storage adapter "local" fallback).
+// When S3 is configured, files are served from S3 and this route is unused.
+app.use(
+  '/uploads',
+  express.static(path.resolve(process.cwd(), 'uploads'), {
+    maxAge: '1y',
+    fallthrough: true,
   })
 );
 

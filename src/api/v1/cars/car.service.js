@@ -202,6 +202,27 @@ export const carService = {
     return car;
   },
 
+  /**
+   * GET /cars/:slug — fetch a vehicle by its slug (includes images).
+   */
+  async getBySlug(slug) {
+    const car = await prisma.vehicle.findUnique({
+      where: { slug: String(slug) },
+      include: {
+        brand: true,
+        model: true,
+        category: true,
+        station: true,
+        images: { orderBy: { sortOrder: 'asc' } },
+      },
+    });
+    if (!car) throw new NotFoundError('Vehicle');
+    return {
+      ...car,
+      thumbnailUrl: car.thumbnailUrl || car.images?.[0]?.url || null,
+    };
+  },
+
   async create(data) {
     return prisma.vehicle.create({ data });
   },

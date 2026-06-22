@@ -32,6 +32,13 @@ export const env = {
   RATE_LIMIT_MAX: parseInt(process.env.RATE_LIMIT_MAX || '100', 10),
 
   UPLOAD_MAX_SIZE_MB: parseInt(process.env.UPLOAD_MAX_SIZE_MB || '5', 10),
+
+  // Storage (S3 with local ./uploads fallback)
+  S3_BUCKET: process.env.S3_BUCKET || '',
+  S3_REGION: process.env.S3_REGION || 'ap-southeast-1',
+  S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID || '',
+  S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY || '',
+  S3_PUBLIC_URL: process.env.S3_PUBLIC_URL || '',
 };
 
 export const isProd = env.NODE_ENV === 'production';
