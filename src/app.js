@@ -1,86 +1,60 @@
-// src/app.js — Express app setup
-import path from 'node:path';
+// src/app.js
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
 import compression from 'compression';
+import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
 
-import { env } from './config/env.js';
-import { swaggerSpec } from './config/swagger.js';
-import v1Router from './api/v1/index.js';
-import { errorHandler, notFound } from './middlewares/error.middleware.js';
+import env from './config/env.js';
+import swaggerSpec from './config/swagger.js';
+import routes from './routes/index.js';
+import { notFoundHandler, errorHandler } from './middleware/errorHandler.js';
 
 const app = express();
 
-// Security
+// Security & Performance
 app.use(helmet());
-app.use(
-  cors({
-    origin: env.CORS_ORIGIN.split(',').map((s) => s.trim()),
-    credentials: true,
-  })
-);
-
-// Body parsers
-app.use(express.json({ limit: '2mb' }));
-app.use(express.urlencoded({ extended: true }));
 app.use(compression());
+app.use(cors({ origin: env.corsOrigin, credentials: true }));
 
-// Logger
-if (env.NODE_ENV !== 'test') {
-  app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: env.rateLimit.windowMs,
+  max: env.rateLimit.max,
+  message: { success: false, message: 'Too many requests, please try again later' },
+});
+app.use(limiter);
+
+// Logging
+if (env.nodeEnv !== 'test') {
+  app.use(morgan('dev'));
 }
 
-// Rate limit (apply on API)
-app.use(
-  env.API_PREFIX,
-  rateLimit({
-    windowMs: env.RATE_LIMIT_WINDOW_MS,
-    max: env.RATE_LIMIT_MAX,
-    standardHeaders: true,
-    legacyHeaders: false,
-  })
-);
+// Body parsing
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
-// Static files for locally-stored uploads (storage adapter "local" fallback).
-// When S3 is configured, files are served from S3 and this route is unused.
-app.use(
-  '/uploads',
-  express.static(path.resolve(process.cwd(), 'uploads'), {
-    maxAge: '1y',
-    fallthrough: true,
-  })
-);
+// Swagger docs
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/api-docs.json', (req, res) => res.json(swaggerSpec));
 
-// Health check
-app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
+// API routes
+app.use(env.apiPrefix, routes);
 
-// ----- Swagger / OpenAPI docs -----
-const docsPath = `${env.API_PREFIX}/docs`;
-// Raw OpenAPI JSON spec
-app.get(`${docsPath}.json`, (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.send(swaggerSpec);
+// Root route
+app.get('/', (req, res) => {
+  res.json({
+    name: 'OtoRent API',
+    version: '1.0.0',
+    docs: `${env.appUrl}/api-docs`,
+    health: `${env.appUrl}${env.apiPrefix}/health`,
+  });
 });
-// Swagger UI (helmet CSP disabled on this sub-path so the UI assets load)
-app.use(
-  docsPath,
-  helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }),
-  swaggerUi.serve,
-  swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: 'CarRent API Docs',
-    swaggerOptions: { persistAuthorization: true },
-  })
-);
 
-// Mount v1
-app.use(env.API_PREFIX, v1Router);
-
-// 404 + error handlers
-app.use(notFound);
+// Error handling
+app.use(notFoundHandler);
 app.use(errorHandler);
 
 export default app;
