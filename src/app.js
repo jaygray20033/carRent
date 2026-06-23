@@ -11,6 +11,8 @@ import { errorHandler } from './middlewares/errorHandler.js';
 
 // Route imports
 import bookingRoutes from './api/v1/bookings/booking.routes.js';
+import insurancePlanRoutes from './api/v1/insurance-plans/insurancePlan.routes.js';
+import couponRoutes from './api/v1/coupons/coupon.routes.js';
 
 const app = express();
 
@@ -40,6 +42,8 @@ app.get('/health', (req, res) => {
 const prefix = env.API_PREFIX; // /api/v1
 
 app.use(`${prefix}/bookings`, bookingRoutes);
+app.use(`${prefix}/insurance-plans`, insurancePlanRoutes);
+app.use(`${prefix}/coupons`, couponRoutes);
 
 // ─── 404 handler ────────────────────────────────────────────────────
 app.use((req, res) => {

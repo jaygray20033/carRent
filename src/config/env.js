@@ -26,4 +26,9 @@ const env = {
   BCRYPT_SALT_ROUNDS: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12,
 };
 
+// Named helper exports (used by config/db.js and other modules)
+export const isProd = env.NODE_ENV === 'production';
+export const isDev = env.NODE_ENV === 'development';
+
+export { env };
 export default env;

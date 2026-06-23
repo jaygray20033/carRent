@@ -1,9 +1,14 @@
 // ─────────────────────────────────────────────────────────────────────
-//  src/validators/booking.validator.js — Zod schemas for booking (UC-08)
+//  src/validators/booking.validator.js — Zod schemas for booking
+//  Day 11: createDraftSchema (UC-08/UC-14)
+//  Day 12: updateDraftSchema (UC-15)
 // ─────────────────────────────────────────────────────────────────────
 import { z } from 'zod';
 import dayjs from 'dayjs';
 
+/**
+ * POST /api/v1/bookings/draft
+ */
 export const createDraftSchema = z
   .object({
     vehicleId: z.number().int().positive('vehicleId must be a positive integer'),
@@ -29,10 +34,23 @@ export const createDraftSchema = z
   .refine(
     (data) => {
       const pickup = dayjs(data.pickup_at);
-      // Pickup must be at least 2 hours from now
       return pickup.isAfter(dayjs().add(2, 'hour'));
     },
     { message: 'pickup_at must be at least 2 hours from now', path: ['pickup_at'] }
   );
 
-export default { createDraftSchema };
+/**
+ * PATCH /api/v1/bookings/:id  — update a DRAFT booking
+ * Allowed fields: insurance_plan_id, dropoff_point
+ * At least one field must be provided.
+ */
+export const updateDraftSchema = z
+  .object({
+    insurancePlanId: z.number().int().positive().nullable().optional(),
+    dropoffPoint: z.string().min(1).optional(),
+  })
+  .refine((data) => data.insurancePlanId !== undefined || data.dropoffPoint !== undefined, {
+    message: 'At least one of insurancePlanId or dropoffPoint must be provided',
+  });
+
+export default { createDraftSchema, updateDraftSchema };

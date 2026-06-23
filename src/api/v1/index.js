@@ -10,6 +10,8 @@ import brandRoutes from './brands/brand.routes.js';
 import vehicleModelRoutes from './vehicle-models/vehicleModel.routes.js';
 import categoryRoutes from './categories/category.routes.js';
 import postRoutes from './posts/post.routes.js';
+import insurancePlanRoutes from './insurance-plans/insurancePlan.routes.js';
+import couponRoutes from './coupons/coupon.routes.js';
 import adminRoutes from './admin/index.js';
 
 const router = Router();
@@ -29,6 +31,8 @@ router.get('/', (_req, res) =>
       '/vehicle-models',
       '/categories',
       '/posts',
+      '/insurance-plans',
+      '/coupons',
       '/admin/vehicles',
       '/admin/vehicle-models',
     ],
@@ -45,6 +49,8 @@ router.use('/brands', brandRoutes);
 router.use('/vehicle-models', vehicleModelRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/posts', postRoutes);
+router.use('/insurance-plans', insurancePlanRoutes);
+router.use('/coupons', couponRoutes);
 router.use('/admin', adminRoutes);
 
 export default router;

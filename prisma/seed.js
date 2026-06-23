@@ -731,6 +731,105 @@ async function main() {
   }
   console.log('  ✓ Posts');
 
+  // ─── 10) Insurance Plans (Day 12 — UC-15) ──────────────────────────
+  const insurancePlans = [
+    {
+      code: 'BASIC',
+      name: 'Bảo hiểm cơ bản',
+      description: 'Bảo hiểm trách nhiệm dân sự bắt buộc. Bồi thường tối đa 100 triệu VND.',
+      ratePercent: 5,
+      isActive: true,
+    },
+    {
+      code: 'PREMIUM',
+      name: 'Bảo hiểm cao cấp',
+      description:
+        'Bảo hiểm toàn diện: thân xe + hành khách + tai nạn lái xe. Bồi thường tối đa 500 triệu VND.',
+      ratePercent: 10,
+      isActive: true,
+    },
+  ];
+  for (const ip of insurancePlans) {
+    await prisma.insurancePlan.upsert({
+      where: { code: ip.code },
+      update: { name: ip.name, description: ip.description, ratePercent: ip.ratePercent },
+      create: ip,
+    });
+  }
+  console.log('  ✓ Insurance Plans');
+
+  // ─── 11) Coupons (Day 12 — UC-16) ─────────────────────────────────
+  const coupons = [
+    {
+      code: 'WELCOME50K',
+      type: 'FIXED',
+      value: 50000,
+      minOrder: 500000,
+      maxDiscount: null,
+      maxUse: 1000,
+      maxUsePerUser: 1,
+      startAt: new Date('2024-01-01'),
+      endAt: new Date('2027-12-31'),
+      isActive: true,
+    },
+    {
+      code: 'SUMMER10',
+      type: 'PERCENT',
+      value: 10,
+      minOrder: 1000000,
+      maxDiscount: 500000,
+      maxUse: 500,
+      maxUsePerUser: 2,
+      startAt: new Date('2026-06-01'),
+      endAt: new Date('2026-08-31'),
+      isActive: true,
+    },
+    {
+      code: 'FREEDRIVER',
+      type: 'FREE_DRIVER',
+      value: 0,
+      minOrder: 3000000,
+      maxDiscount: null,
+      maxUse: 100,
+      maxUsePerUser: 1,
+      startAt: new Date('2026-01-01'),
+      endAt: new Date('2027-06-30'),
+      isActive: true,
+    },
+    {
+      code: 'VIP20',
+      type: 'PERCENT',
+      value: 20,
+      minOrder: 5000000,
+      maxDiscount: 2000000,
+      maxUse: 50,
+      maxUsePerUser: 1,
+      startAt: new Date('2026-01-01'),
+      endAt: new Date('2026-12-31'),
+      isActive: true,
+    },
+    {
+      code: 'EXPIRED2025',
+      type: 'FIXED',
+      value: 100000,
+      minOrder: 0,
+      maxDiscount: null,
+      maxUse: 0,
+      maxUsePerUser: 1,
+      startAt: new Date('2025-01-01'),
+      endAt: new Date('2025-06-30'),
+      isActive: true,
+    },
+  ];
+  for (const cp of coupons) {
+    await prisma.coupon.upsert({
+      where: { code: cp.code },
+      update: {},
+      create: cp,
+    });
+  }
+  console.log('  ✓ Coupons');
+
   console.log('\n✅ Seed done.');
 }
 

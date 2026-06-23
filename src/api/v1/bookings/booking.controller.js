@@ -1,8 +1,10 @@
 // ─────────────────────────────────────────────────────────────────────
 //  src/api/v1/bookings/booking.controller.js — Booking handlers
+//  Day 11: createDraft (UC-14)
+//  Day 12: updateDraft (UC-15)
 // ─────────────────────────────────────────────────────────────────────
 import bookingService from '../../../services/bookingService.js';
-import { createDraftSchema } from '../../../validators/booking.validator.js';
+import { createDraftSchema, updateDraftSchema } from '../../../validators/booking.validator.js';
 import { AppError } from '../../../utils/AppError.js';
 
 /**
@@ -11,7 +13,6 @@ import { AppError } from '../../../utils/AppError.js';
  */
 export async function createDraft(req, res, next) {
   try {
-    // Validate request body (UC-08)
     const parsed = createDraftSchema.safeParse(req.body);
     if (!parsed.success) {
       const errors = parsed.error.errors.map((e) => ({
@@ -35,7 +36,6 @@ export async function createDraft(req, res, next) {
       premium_insurance,
     } = parsed.data;
 
-    // req.user is set by auth middleware
     const userId = req.user.id;
 
     const result = await bookingService.createDraft({
@@ -66,4 +66,48 @@ export async function createDraft(req, res, next) {
   }
 }
 
-export default { createDraft };
+/**
+ * PATCH /api/v1/bookings/:id
+ * Update a DRAFT booking (only own DRAFT): insurance_plan_id, dropoff_point, recompute pricing.
+ */
+export async function updateDraft(req, res, next) {
+  try {
+    const bookingId = parseInt(req.params.id, 10);
+    if (isNaN(bookingId)) {
+      return res.status(400).json({ status: 'fail', message: 'Invalid booking ID' });
+    }
+
+    const parsed = updateDraftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const errors = parsed.error.errors.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Validation failed',
+        errors,
+      });
+    }
+
+    const userId = req.user.id;
+    const result = await bookingService.updateDraft(userId, bookingId, parsed.data);
+
+    return res.status(200).json({
+      status: 'success',
+      message: 'Booking draft updated successfully',
+      data: result,
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.status,
+        message: error.message,
+        ...(error.details && { details: error.details }),
+      });
+    }
+    next(error);
+  }
+}
+
+export default { createDraft, updateDraft };

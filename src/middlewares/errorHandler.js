@@ -15,6 +15,8 @@ export function errorHandler(err, req, res, _next) {
   res.status(statusCode).json({
     status: statusCode >= 500 ? 'error' : 'fail',
     message,
+    ...(err.details?.code && { code: err.details.code }),
+    ...(err.details && err.details.code === undefined && { details: err.details }),
     ...(env.NODE_ENV === 'development' && { stack: err.stack }),
   });
 }

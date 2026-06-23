@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'carrent-be',
       script: 'src/server.js',
-      cwd: '/home/user/webapp/carRent-be',
+      cwd: '/home/user/webapp',
       env: {
         NODE_ENV: 'development',
         PORT: 4000,

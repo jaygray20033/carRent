@@ -14,9 +14,12 @@ datasource db {
 
 // ─── Roles ──────────────────────────────────────────────────────────
 model Role {
-  id    Int    @id @default(autoincrement())
-  name  String @unique
-  users User[]
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  users       User[]
 
   @@map("roles")
 }
@@ -26,8 +29,8 @@ model User {
   id               Int       @id @default(autoincrement())
   roleId           Int       @map("role_id")
   fullName         String    @map("full_name")
-  email            String?
-  phone            String
+  email            String?   @unique
+  phone            String    @unique
   countryCode      String    @default("+84") @map("country_code")
   passwordHash     String    @map("password_hash")
   avatarUrl        String?   @map("avatar_url")
@@ -45,6 +48,7 @@ model User {
   role     Role      @relation(fields: [roleId], references: [id])
   bookings Booking[]
   wallet   Wallet?
+  posts    Post[]
 
   @@map("users")
 }
@@ -52,24 +56,33 @@ model User {
 // ─── Brands ─────────────────────────────────────────────────────────
 model Brand {
   id        Int       @id @default(autoincrement())
-  name      String
+  name      String    @unique
   slug      String    @unique
   logoUrl   String?   @map("logo_url")
+  country   String?
   createdAt DateTime  @default(now()) @map("created_at")
 
-  vehicles Vehicle[]
+  vehicles      Vehicle[]
+  vehicleModels VehicleModel[]
 
   @@map("brands")
 }
 
 // ─── Vehicle Models ─────────────────────────────────────────────────
 model VehicleModel {
-  id        Int       @id @default(autoincrement())
-  brandId   Int       @map("brand_id")
-  name      String
-  slug      String    @unique
-  createdAt DateTime  @default(now()) @map("created_at")
+  id           Int       @id @default(autoincrement())
+  brandId      Int       @map("brand_id")
+  categoryId   Int?      @map("category_id")
+  name         String
+  slug         String    @unique
+  seats        Int       @default(5)
+  transmission String    @default("AUTO")
+  fuelType     String    @default("GASOLINE") @map("fuel_type")
+  description  String?
+  createdAt    DateTime  @default(now()) @map("created_at")
 
+  brand    Brand     @relation(fields: [brandId], references: [id])
+  category Category? @relation(fields: [categoryId], references: [id])
   vehicles Vehicle[]
 
   @@map("vehicle_models")
@@ -78,11 +91,13 @@ model VehicleModel {
 // ─── Categories ─────────────────────────────────────────────────────
 model Category {
   id        Int       @id @default(autoincrement())
-  name      String
+  name      String    @unique
   slug      String    @unique
+  icon      String?
   createdAt DateTime  @default(now()) @map("created_at")
 
-  vehicles Vehicle[]
+  vehicles      Vehicle[]
+  vehicleModels VehicleModel[]
 
   @@map("categories")
 }
@@ -135,8 +150,8 @@ model Vehicle {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  brand    Brand         @relation(fields: [brandId], references: [id])
-  model    VehicleModel? @relation(fields: [modelId], references: [id])
+  brand    Brand          @relation(fields: [brandId], references: [id])
+  model    VehicleModel?  @relation(fields: [modelId], references: [id])
   category Category?     @relation(fields: [categoryId], references: [id])
   station  Station?      @relation(fields: [stationId], references: [id])
   images   VehicleImage[]
@@ -150,6 +165,7 @@ model VehicleImage {
   id        Int      @id @default(autoincrement())
   vehicleId Int      @map("vehicle_id")
   url       String
+  isPrimary Boolean  @default(false) @map("is_primary")
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -158,29 +174,84 @@ model VehicleImage {
   @@map("vehicle_images")
 }
 
-// ─── Bookings (updated Day 11 — UC-14) ──────────────────────────────
-model Booking {
-  id            Int      @id @default(autoincrement())
-  bookingCode   String   @unique @map("booking_code")
-  userId        Int      @map("user_id")
-  vehicleId     Int      @map("vehicle_id")
-  rentalType    String   @default("SELF_DRIVE") @map("rental_type")
-  pickupAt      DateTime @map("pickup_at")
-  returnAt      DateTime @map("return_at")
-  pickupPoint   String?  @map("pickup_point")
-  dropoffPoint  String?  @map("dropoff_point")
-  totalDays     Int      @map("total_days")
-  pricePerDay   Float    @map("price_per_day")
-  totalAmount   Float    @map("total_amount")
-  status        String   @default("DRAFT")
-  holdUntil     DateTime? @map("hold_until")
-  pricingSnapshot String? @map("pricing_snapshot")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+// ─── Insurance Plans (Day 12 — UC-15) ───────────────────────────────
+model InsurancePlan {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique                        // BASIC, PREMIUM
+  name        String                                  // "Bảo hiểm cơ bản", "Bảo hiểm cao cấp"
+  description String?
+  ratePercent Float    @map("rate_percent")            // e.g. 5 = 5% of subtotal
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  user    User             @relation(fields: [userId], references: [id])
-  vehicle Vehicle          @relation(fields: [vehicleId], references: [id])
-  history BookingHistory[]
+  bookings Booking[]
+
+  @@map("insurance_plans")
+}
+
+// ─── Coupons (Day 12 — UC-16) ──────────────────────────────────────
+model Coupon {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique                    // e.g. "WELCOME50K"
+  type            String                               // FIXED, PERCENT, FREE_DRIVER
+  value           Float                                // 50000 (VND) or 10 (%) or 0 (driver)
+  minOrder        Float     @default(0) @map("min_order")   // minimum subtotal to apply
+  maxDiscount     Float?    @map("max_discount")       // cap for PERCENT type
+  maxUse          Int       @default(0) @map("max_use")     // 0 = unlimited
+  maxUsePerUser   Int       @default(1) @map("max_use_per_user")
+  startAt         DateTime  @map("start_at")
+  endAt           DateTime  @map("end_at")
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  usages CouponUsage[]
+
+  @@map("coupons")
+}
+
+// ─── Coupon Usages (Day 12 — UC-16, insert at UC-17 confirm) ───────
+model CouponUsage {
+  id        Int      @id @default(autoincrement())
+  couponId  Int      @map("coupon_id")
+  userId    Int      @map("user_id")
+  bookingId Int      @map("booking_id")
+  discount  Float                                      // actual discount applied
+  createdAt DateTime @default(now()) @map("created_at")
+
+  coupon Coupon @relation(fields: [couponId], references: [id])
+
+  @@map("coupon_usages")
+}
+
+// ─── Bookings (updated Day 12 — UC-15, UC-16) ──────────────────────
+model Booking {
+  id              Int      @id @default(autoincrement())
+  bookingCode     String   @unique @map("booking_code")
+  userId          Int      @map("user_id")
+  vehicleId       Int      @map("vehicle_id")
+  insurancePlanId Int?     @map("insurance_plan_id")
+  couponId        Int?     @map("coupon_id")
+  rentalType      String   @default("SELF_DRIVE") @map("rental_type")
+  pickupAt        DateTime @map("pickup_at")
+  returnAt        DateTime @map("return_at")
+  pickupPoint     String?  @map("pickup_point")
+  dropoffPoint    String?  @map("dropoff_point")
+  totalDays       Int      @map("total_days")
+  pricePerDay     Float    @map("price_per_day")
+  subtotal        Float    @default(0)
+  insuranceFee    Float    @default(0) @map("insurance_fee")
+  couponDiscount  Float    @default(0) @map("coupon_discount")
+  totalAmount     Float    @map("total_amount")
+  status          String   @default("DRAFT")
+  holdUntil       DateTime? @map("hold_until")
+  pricingSnapshot String?  @map("pricing_snapshot")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user          User           @relation(fields: [userId], references: [id])
+  vehicle       Vehicle        @relation(fields: [vehicleId], references: [id])
+  insurancePlan InsurancePlan? @relation(fields: [insurancePlanId], references: [id])
+  history       BookingHistory[]
 
   @@map("bookings")
 }
@@ -212,14 +283,20 @@ model Review {
 
 // ─── Posts ──────────────────────────────────────────────────────────
 model Post {
-  id          Int      @id @default(autoincrement())
-  title       String
-  slug        String   @unique
-  content     String?
-  thumbnailUrl String? @map("thumbnail_url")
-  status      String   @default("DRAFT")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id           Int       @id @default(autoincrement())
+  authorId     Int?      @map("author_id")
+  title        String
+  slug         String    @unique
+  excerpt      String?
+  content      String
+  thumbnailUrl String?   @map("thumbnail_url")
+  status       String    @default("PUBLISHED")
+  viewCount    Int       @default(0) @map("view_count")
+  publishedAt  DateTime? @map("published_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
 
   @@map("posts")
 }
@@ -240,9 +317,13 @@ model Wallet {
 
 // ─── Site Settings ──────────────────────────────────────────────────
 model SiteSetting {
-  id    Int    @id @default(autoincrement())
-  key   String @unique
-  value String
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String?
+  grp       String?
+  label     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("site_settings")
 }
