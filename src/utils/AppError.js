@@ -1,10 +1,16 @@
 // ─────────────────────────────────────────────────────────────────────
-//  tests/setup.js — Jest global setup
+//  src/utils/AppError.js — Custom application error class
 // ─────────────────────────────────────────────────────────────────────
 
-// Set test environment
-process.env.NODE_ENV = 'test';
-process.env.JWT_ACCESS_SECRET = 'test_access_secret';
-process.env.JWT_REFRESH_SECRET = 'test_refresh_secret';
-process.env.DATABASE_URL = 'file:./dev.db';
-process.env.REDIS_URL = ''; // disable Redis in tests
+export class AppError extends Error {
+  constructor(statusCode, message, details = null) {
+    super(message);
+    this.statusCode = statusCode;
+    this.status = `${statusCode}`.startsWith('4') ? 'fail' : 'error';
+    this.isOperational = true;
+    this.details = details;
+    Error.captureStackTrace(this, this.constructor);
+  }
+}
+
+export default AppError;

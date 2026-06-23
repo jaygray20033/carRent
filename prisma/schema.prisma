@@ -1,4 +1,8 @@
-// Prisma schema for CarRent (SQLite for local dev)
+// ─────────────────────────────────────────────────────────────────────
+//  OtoRent — Prisma Schema
+//  Provider: SQLite (dev) | MySQL (production)
+// ─────────────────────────────────────────────────────────────────────
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -8,43 +12,219 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─── Roles ──────────────────────────────────────────────────────────
 model Role {
-  id          Int      @id @default(autoincrement())
-  code        String   @unique
-  name        String
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  users       User[]
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  users User[]
+
   @@map("roles")
 }
 
+// ─── Users ──────────────────────────────────────────────────────────
 model User {
-  id              Int       @id @default(autoincrement())
-  roleId          Int       @map("role_id")
-  fullName        String    @map("full_name")
-  email           String?   @unique
-  phone           String    @unique
-  countryCode     String    @default("+84") @map("country_code")
-  passwordHash    String    @map("password_hash")
-  avatarUrl       String?   @map("avatar_url")
-  dateOfBirth     DateTime? @map("date_of_birth")
-  gender          String?
-  nationalId      String?   @map("national_id")
-  driverLicense   String?   @map("driver_license")
-  status          String    @default("PENDING")
-  emailVerifiedAt DateTime? @map("email_verified_at")
-  phoneVerifiedAt DateTime? @map("phone_verified_at")
-  lastLoginAt     DateTime? @map("last_login_at")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
-  role            Role      @relation(fields: [roleId], references: [id])
-  wallet          Wallet?
-  bookings        Booking[]
-  reviews         Review[]
-  posts           Post[]
+  id               Int       @id @default(autoincrement())
+  roleId           Int       @map("role_id")
+  fullName         String    @map("full_name")
+  email            String?
+  phone            String
+  countryCode      String    @default("+84") @map("country_code")
+  passwordHash     String    @map("password_hash")
+  avatarUrl        String?   @map("avatar_url")
+  dateOfBirth      DateTime? @map("date_of_birth")
+  gender           String?
+  nationalId       String?   @map("national_id")
+  driverLicense    String?   @map("driver_license")
+  status           String    @default("PENDING")
+  emailVerifiedAt  DateTime? @map("email_verified_at")
+  phoneVerifiedAt  DateTime? @map("phone_verified_at")
+  lastLoginAt      DateTime? @map("last_login_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  role     Role      @relation(fields: [roleId], references: [id])
+  bookings Booking[]
+  wallet   Wallet?
+
   @@map("users")
 }
 
+// ─── Brands ─────────────────────────────────────────────────────────
+model Brand {
+  id        Int       @id @default(autoincrement())
+  name      String
+  slug      String    @unique
+  logoUrl   String?   @map("logo_url")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  vehicles Vehicle[]
+
+  @@map("brands")
+}
+
+// ─── Vehicle Models ─────────────────────────────────────────────────
+model VehicleModel {
+  id        Int       @id @default(autoincrement())
+  brandId   Int       @map("brand_id")
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  vehicles Vehicle[]
+
+  @@map("vehicle_models")
+}
+
+// ─── Categories ─────────────────────────────────────────────────────
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  vehicles Vehicle[]
+
+  @@map("categories")
+}
+
+// ─── Stations ───────────────────────────────────────────────────────
+model Station {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String   @default("CITY")
+  city      String
+  district  String?
+  address   String
+  latitude  Float?
+  longitude Float?
+  phone     String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  vehicles Vehicle[]
+
+  @@map("stations")
+}
+
+// ─── Vehicles ───────────────────────────────────────────────────────
+model Vehicle {
+  id            Int      @id @default(autoincrement())
+  brandId       Int      @map("brand_id")
+  modelId       Int?     @map("model_id")
+  categoryId    Int?     @map("category_id")
+  stationId     Int?     @map("station_id")
+  name          String
+  slug          String   @unique
+  modelYear     Int      @map("model_year")
+  licensePlate  String   @unique @map("license_plate")
+  color         String?
+  seats         Int      @default(5)
+  transmission  String   @default("AUTO")
+  fuelType      String   @default("GASOLINE") @map("fuel_type")
+  pricePerDay   Float    @map("price_per_day")
+  pricePerMonth Float?   @map("price_per_month")
+  depositAmount Float    @default(0) @map("deposit_amount")
+  description   String?
+  thumbnailUrl  String?  @map("thumbnail_url")
+  status        String   @default("AVAILABLE")
+  rating        Float    @default(0)
+  reviewCount   Int      @default(0) @map("review_count")
+  totalBookings Int      @default(0) @map("total_bookings")
+  isFeatured    Boolean  @default(false) @map("is_featured")
+  featuredTag   String?  @map("featured_tag")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  brand    Brand         @relation(fields: [brandId], references: [id])
+  model    VehicleModel? @relation(fields: [modelId], references: [id])
+  category Category?     @relation(fields: [categoryId], references: [id])
+  station  Station?      @relation(fields: [stationId], references: [id])
+  images   VehicleImage[]
+  bookings Booking[]
+
+  @@map("vehicles")
+}
+
+// ─── Vehicle Images ─────────────────────────────────────────────────
+model VehicleImage {
+  id        Int      @id @default(autoincrement())
+  vehicleId Int      @map("vehicle_id")
+  url       String
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@map("vehicle_images")
+}
+
+// ─── Bookings (updated Day 11 — UC-14) ──────────────────────────────
+model Booking {
+  id            Int      @id @default(autoincrement())
+  bookingCode   String   @unique @map("booking_code")
+  userId        Int      @map("user_id")
+  vehicleId     Int      @map("vehicle_id")
+  rentalType    String   @default("SELF_DRIVE") @map("rental_type")
+  pickupAt      DateTime @map("pickup_at")
+  returnAt      DateTime @map("return_at")
+  pickupPoint   String?  @map("pickup_point")
+  dropoffPoint  String?  @map("dropoff_point")
+  totalDays     Int      @map("total_days")
+  pricePerDay   Float    @map("price_per_day")
+  totalAmount   Float    @map("total_amount")
+  status        String   @default("DRAFT")
+  holdUntil     DateTime? @map("hold_until")
+  pricingSnapshot String? @map("pricing_snapshot")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user    User             @relation(fields: [userId], references: [id])
+  vehicle Vehicle          @relation(fields: [vehicleId], references: [id])
+  history BookingHistory[]
+
+  @@map("bookings")
+}
+
+// ─── Booking History (Day 11 — UC-14) ───────────────────────────────
+model BookingHistory {
+  id        Int      @id @default(autoincrement())
+  bookingId Int      @map("booking_id")
+  status    String
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("booking_histories")
+}
+
+// ─── Reviews ────────────────────────────────────────────────────────
+model Review {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  vehicleId Int      @map("vehicle_id")
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("reviews")
+}
+
+// ─── Posts ──────────────────────────────────────────────────────────
+model Post {
+  id          Int      @id @default(autoincrement())
+  title       String
+  slug        String   @unique
+  content     String?
+  thumbnailUrl String? @map("thumbnail_url")
+  status      String   @default("DRAFT")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("posts")
+}
+
+// ─── Wallets ────────────────────────────────────────────────────────
 model Wallet {
   id        Int      @id @default(autoincrement())
   userId    Int      @unique @map("user_id")
@@ -52,169 +232,17 @@ model Wallet {
   currency  String   @default("VND")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("wallets")
 }
 
-model Station {
-  id        Int       @id @default(autoincrement())
-  name      String
-  type      String    @default("CITY") // AIRPORT, CITY, HQ
-  city      String
-  district  String?
-  address   String
-  latitude  Float?
-  longitude Float?
-  phone     String?
-  isActive  Boolean   @default(true) @map("is_active")
-  createdAt DateTime  @default(now()) @map("created_at")
-  vehicles  Vehicle[]
-  @@map("stations")
-}
-
-model Brand {
-  id        Int            @id @default(autoincrement())
-  name      String         @unique
-  slug      String         @unique
-  logoUrl   String?        @map("logo_url")
-  country   String?
-  createdAt DateTime       @default(now()) @map("created_at")
-  models    VehicleModel[]
-  vehicles  Vehicle[]
-  @@map("brands")
-}
-
-model Category {
-  id            Int            @id @default(autoincrement())
-  name          String         @unique
-  slug          String         @unique
-  icon          String?
-  createdAt     DateTime       @default(now()) @map("created_at")
-  vehicles      Vehicle[]
-  vehicleModels VehicleModel[]
-  @@map("categories")
-}
-
-model VehicleModel {
-  id           Int       @id @default(autoincrement())
-  brandId      Int       @map("brand_id")
-  categoryId   Int?      @map("category_id")
-  name         String
-  slug         String    @unique
-  seats        Int       @default(5)
-  transmission String    @default("AUTO")
-  fuelType     String    @default("GASOLINE") @map("fuel_type")
-  description  String?
-  createdAt    DateTime  @default(now()) @map("created_at")
-  brand        Brand     @relation(fields: [brandId], references: [id])
-  category     Category? @relation(fields: [categoryId], references: [id])
-  vehicles     Vehicle[]
-  @@map("vehicle_models")
-}
-
-model Vehicle {
-  id            Int            @id @default(autoincrement())
-  brandId       Int            @map("brand_id")
-  modelId       Int?           @map("model_id")
-  categoryId    Int?           @map("category_id")
-  stationId     Int?           @map("station_id")
-  name          String
-  slug          String         @unique
-  modelYear     Int            @map("model_year")
-  licensePlate  String         @unique @map("license_plate")
-  color         String?
-  seats         Int            @default(5)
-  transmission  String         @default("AUTO")
-  fuelType      String         @default("GASOLINE") @map("fuel_type")
-  pricePerDay   Float          @map("price_per_day")
-  pricePerMonth Float?         @map("price_per_month")
-  depositAmount Float          @default(0) @map("deposit_amount")
-  description   String?
-  thumbnailUrl  String?        @map("thumbnail_url")
-  status        String         @default("AVAILABLE")
-  rating        Float          @default(0)
-  reviewCount   Int            @default(0) @map("review_count")
-  totalBookings Int            @default(0) @map("total_bookings")
-  isFeatured    Boolean        @default(false) @map("is_featured")
-  featuredTag   String?        @map("featured_tag") // XE_DOI_MOI, XE_SANG, DAT_HANG
-  createdAt     DateTime       @default(now()) @map("created_at")
-  updatedAt     DateTime       @updatedAt @map("updated_at")
-  brand         Brand          @relation(fields: [brandId], references: [id])
-  model         VehicleModel?  @relation(fields: [modelId], references: [id])
-  category      Category?      @relation(fields: [categoryId], references: [id])
-  station       Station?       @relation(fields: [stationId], references: [id])
-  images        VehicleImage[]
-  bookings      Booking[]
-  reviews       Review[]
-  @@map("vehicles")
-}
-
-model VehicleImage {
-  id        Int      @id @default(autoincrement())
-  vehicleId Int      @map("vehicle_id")
-  url       String
-  isPrimary Boolean  @default(false) @map("is_primary")
-  sortOrder Int      @default(0) @map("sort_order")
-  createdAt DateTime @default(now()) @map("created_at")
-  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-  @@map("vehicle_images")
-}
-
-model Booking {
-  id          Int      @id @default(autoincrement())
-  bookingCode String   @unique @map("booking_code")
-  userId      Int      @map("user_id")
-  vehicleId   Int      @map("vehicle_id")
-  rentalType  String   @default("SELF_DRIVE") @map("rental_type")
-  pickupAt    DateTime @map("pickup_at")
-  returnAt    DateTime @map("return_at")
-  totalDays   Int      @map("total_days")
-  pricePerDay Float    @map("price_per_day")
-  totalAmount Float    @map("total_amount")
-  status      String   @default("PENDING_PAYMENT")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  user        User     @relation(fields: [userId], references: [id])
-  vehicle     Vehicle  @relation(fields: [vehicleId], references: [id])
-  @@map("bookings")
-}
-
-model Review {
-  id        Int      @id @default(autoincrement())
-  vehicleId Int      @map("vehicle_id")
-  userId    Int      @map("user_id")
-  rating    Int      @default(5)
-  comment   String?
-  createdAt DateTime @default(now()) @map("created_at")
-  vehicle   Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  @@map("reviews")
-}
-
-model Post {
-  id           Int      @id @default(autoincrement())
-  authorId     Int?     @map("author_id")
-  title        String
-  slug         String   @unique
-  excerpt      String?
-  content      String
-  thumbnailUrl String?  @map("thumbnail_url")
-  status       String   @default("PUBLISHED")
-  viewCount    Int      @default(0) @map("view_count")
-  publishedAt  DateTime? @map("published_at")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
-  author       User?    @relation(fields: [authorId], references: [id])
-  @@map("posts")
-}
-
+// ─── Site Settings ──────────────────────────────────────────────────
 model SiteSetting {
-  id        Int      @id @default(autoincrement())
-  key       String   @unique
-  value     String?
-  grp       String?  @map("grp")
-  label     String?
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id    Int    @id @default(autoincrement())
+  key   String @unique
+  value String
+
   @@map("site_settings")
 }

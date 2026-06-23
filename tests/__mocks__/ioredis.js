@@ -1,28 +1,24 @@
-// tests/__mocks__/ioredis.js
-// Mock ioredis for testing — provides a simple in-memory store
+// ─────────────────────────────────────────────────────────────────────
+//  tests/__mocks__/ioredis.js — Mock Redis for tests
+// ─────────────────────────────────────────────────────────────────────
 
 class RedisMock {
   constructor() {
     this.store = new Map();
   }
 
-  async get(key) {
-    const item = this.store.get(key);
-    if (!item) return null;
-    if (item.expireAt && Date.now() > item.expireAt) {
-      this.store.delete(key);
+  async set(key, value, ...args) {
+    // Handle SET key value EX ttl NX
+    const nxIndex = args.indexOf('NX');
+    if (nxIndex !== -1 && this.store.has(key)) {
       return null;
     }
-    return item.value;
+    this.store.set(key, value);
+    return 'OK';
   }
 
-  async set(key, value, ...args) {
-    const item = { value };
-    if (args[0] === 'EX' && args[1]) {
-      item.expireAt = Date.now() + args[1] * 1000;
-    }
-    this.store.set(key, item);
-    return 'OK';
+  async get(key) {
+    return this.store.get(key) || null;
   }
 
   async del(key) {
@@ -30,18 +26,13 @@ class RedisMock {
     return 1;
   }
 
-  async keys(pattern) {
-    const regex = new RegExp(pattern.replace('*', '.*'));
-    return [...this.store.keys()].filter((k) => regex.test(k));
+  on() {
+    return this;
   }
 
-  async flushall() {
-    this.store.clear();
-    return 'OK';
+  connect() {
+    return Promise.resolve();
   }
-
-  disconnect() {}
-  quit() {}
 }
 
 export default RedisMock;

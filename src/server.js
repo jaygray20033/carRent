@@ -1,11 +1,13 @@
-// src/server.js
+// ─────────────────────────────────────────────────────────────────────
+//  src/server.js — Application entry point
+// ─────────────────────────────────────────────────────────────────────
 import app from './app.js';
 import env from './config/env.js';
 
-const PORT = env.port;
+const PORT = env.PORT;
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚗 OtoRent API running at http://0.0.0.0:${PORT}`);
-  console.log(`📖 Swagger docs: http://localhost:${PORT}/api-docs`);
-  console.log(`🔧 Environment: ${env.nodeEnv}`);
+app.listen(PORT, () => {
+  console.log(`🚗 OtoRent API running on port ${PORT} [${env.NODE_ENV}]`);
+  console.log(`   Health: http://localhost:${PORT}/health`);
+  console.log(`   API:    http://localhost:${PORT}${env.API_PREFIX}`);
 });

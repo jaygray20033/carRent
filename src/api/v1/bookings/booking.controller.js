@@ -1,38 +1,69 @@
-// src/api/v1/bookings/booking.controller.js
-import { bookingService } from './booking.service.js';
-import { success, created, paginated } from '../../../utils/apiResponse.js';
+// ─────────────────────────────────────────────────────────────────────
+//  src/api/v1/bookings/booking.controller.js — Booking handlers
+// ─────────────────────────────────────────────────────────────────────
+import bookingService from '../../../services/bookingService.js';
+import { createDraftSchema } from '../../../validators/booking.validator.js';
+import { AppError } from '../../../utils/AppError.js';
 
-export const bookingController = {
-  create: async (req, res) => {
-    const booking = await bookingService.create(req.user.id, req.body);
-    return created(res, { booking }, 'Booking created');
-  },
+/**
+ * POST /api/v1/bookings/draft
+ * Create a draft booking with 15-min hold.
+ */
+export async function createDraft(req, res, next) {
+  try {
+    // Validate request body (UC-08)
+    const parsed = createDraftSchema.safeParse(req.body);
+    if (!parsed.success) {
+      const errors = parsed.error.errors.map((e) => ({
+        field: e.path.join('.'),
+        message: e.message,
+      }));
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Validation failed',
+        errors,
+      });
+    }
 
-  listMy: async (req, res) => {
-    const result = await bookingService.listByUser(req.user.id, req.query);
-    return paginated(res, result.items, {
-      total: result.total,
-      page: result.page,
-      limit: result.limit,
+    const {
+      vehicleId,
+      pickup_at,
+      return_at,
+      pickup_point,
+      dropoff_point,
+      rental_type,
+      premium_insurance,
+    } = parsed.data;
+
+    // req.user is set by auth middleware
+    const userId = req.user.id;
+
+    const result = await bookingService.createDraft({
+      userId,
+      vehicleId,
+      pickupAt: pickup_at,
+      returnAt: return_at,
+      pickupPoint: pickup_point,
+      dropoffPoint: dropoff_point,
+      rentalType: rental_type,
+      premiumInsurance: premium_insurance,
     });
-  },
 
-  detail: async (req, res) => {
-    const booking = await bookingService.getById(
-      req.user.id,
-      req.user.roleCode,
-      req.params.id
-    );
-    return success(res, { booking });
-  },
+    return res.status(201).json({
+      status: 'success',
+      message: 'Booking draft created successfully',
+      data: result,
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({
+        status: error.status,
+        message: error.message,
+        ...(error.details && { details: error.details }),
+      });
+    }
+    next(error);
+  }
+}
 
-  cancel: async (req, res) => {
-    const booking = await bookingService.cancel(
-      req.user.id,
-      req.user.roleCode,
-      req.params.id,
-      req.body.reason
-    );
-    return success(res, { booking }, 'Booking cancelled');
-  },
-};
+export default { createDraft };
