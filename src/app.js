@@ -1,59 +1,91 @@
-// ─────────────────────────────────────────────────────────────────────
-//  src/app.js — Express application setup
-// ─────────────────────────────────────────────────────────────────────
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import compression from 'compression';
-import morgan from 'morgan';
-import env from './config/env.js';
-import { errorHandler } from './middlewares/errorHandler.js';
+require('dotenv').config();
 
-// Route imports
-import bookingRoutes from './api/v1/bookings/booking.routes.js';
-import insurancePlanRoutes from './api/v1/insurance-plans/insurancePlan.routes.js';
-import couponRoutes from './api/v1/coupons/coupon.routes.js';
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
+const routes = require('./routes');
+const errorHandler = require('./middlewares/errorHandler');
 
 const app = express();
+const PORT = parseInt(process.env.PORT, 10) || 4000;
 
-// ─── Security & parsing ─────────────────────────────────────────────
+// Middlewares
 app.use(helmet());
-app.use(compression());
-app.use(
-  cors({
-    origin: env.CORS_ORIGIN.split(',').map((s) => s.trim()),
-    credentials: true,
-  })
-);
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  credentials: true,
+}));
+app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ─── Logging ────────────────────────────────────────────────────────
-if (env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
+// API routes
+app.use('/api/v1', routes);
 
-// ─── Health check ───────────────────────────────────────────────────
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
-
-// ─── API v1 Routes ──────────────────────────────────────────────────
-const prefix = env.API_PREFIX; // /api/v1
-
-app.use(`${prefix}/bookings`, bookingRoutes);
-app.use(`${prefix}/insurance-plans`, insurancePlanRoutes);
-app.use(`${prefix}/coupons`, couponRoutes);
-
-// ─── 404 handler ────────────────────────────────────────────────────
+// 404
 app.use((req, res) => {
   res.status(404).json({
-    status: 'fail',
-    message: `Route ${req.method} ${req.originalUrl} not found`,
+    success: false,
+    message: `Route ${req.method} ${req.url} not found`,
   });
 });
 
-// ─── Global error handler ───────────────────────────────────────────
+// Error handler
 app.use(errorHandler);
 
-export default app;
+// Start server
+async function startServer() {
+  const { sequelize } = require('./models');
+
+  try {
+    // Sync database (create tables if not exist)
+    await sequelize.sync({ alter: false });
+    console.log('[DB] Database synced successfully');
+
+    // Try Redis connection
+    const { tryConnectRedis, isRedisAvailable } = require('./config/redis');
+    const redisOk = await tryConnectRedis();
+
+    // Start BullMQ workers only if Redis is available
+    let workersStarted = false;
+    if (redisOk) {
+      try {
+        const { createReleaseHoldWorker } = require('./jobs/releaseHoldWorker');
+        const { createNotificationWorker } = require('./jobs/notificationWorker');
+        const { createPaymentWorker } = require('./jobs/paymentWorker');
+        const { scheduleReleaseHoldCron } = require('./jobs/queue');
+
+        createReleaseHoldWorker();
+        createNotificationWorker();
+        createPaymentWorker();
+        await scheduleReleaseHoldCron();
+        workersStarted = true;
+        console.log('[Workers] All BullMQ workers started in-process');
+      } catch (workerErr) {
+        console.warn('[Workers] Failed to start BullMQ workers:', workerErr.message);
+      }
+    } else {
+      console.warn('[Workers] Redis not available. BullMQ workers disabled.');
+      console.warn('[Workers] The API will work without Redis. Background jobs need Redis.');
+    }
+
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`\n====================================`);
+      console.log(`  OtoRent API Server`);
+      console.log(`  Port: ${PORT}`);
+      console.log(`  Env: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`  Redis: ${redisOk ? 'CONNECTED' : 'UNAVAILABLE'}`);
+      console.log(`  Workers: ${workersStarted ? 'ACTIVE' : 'DISABLED'}`);
+      console.log(`  API: http://localhost:${PORT}/api/v1`);
+      console.log(`====================================\n`);
+    });
+  } catch (err) {
+    console.error('[App] Failed to start:', err);
+    process.exit(1);
+  }
+}
+
+startServer();
+
+module.exports = app;

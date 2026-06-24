@@ -14,7 +14,7 @@ import logger from '../config/logger.js';
  * @param {number} job.ttl       - TTL seconds
  */
 export const enqueueSendOtp = async ({ to, code, purpose, ttl }) => {
-  // eslint-disable-next-line no-console
+   
   console.log(
     `\n📲 [OTP][${purpose}] -> ${to}\n` +
       `   code : ${code}\n` +

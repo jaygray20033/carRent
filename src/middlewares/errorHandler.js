@@ -1,24 +1,21 @@
-// ─────────────────────────────────────────────────────────────────────
-//  src/middlewares/errorHandler.js — Global error handler
-// ─────────────────────────────────────────────────────────────────────
-import env from '../config/env.js';
+const { error } = require('../utils/response');
 
-export function errorHandler(err, req, res, _next) {
-  const statusCode = err.statusCode || 500;
-  const message = err.isOperational ? err.message : 'Internal server error';
+function errorHandler(err, req, res, _next) {
+  console.error('[Error]', err);
 
-  // Log non-operational errors
-  if (!err.isOperational) {
-    console.error('[ERROR]', err);
+  // Sequelize validation errors
+  if (err.name === 'SequelizeValidationError' || err.name === 'SequelizeUniqueConstraintError') {
+    const messages = err.errors.map((e) => e.message);
+    return error(res, 'Validation error', 422, messages);
   }
 
-  res.status(statusCode).json({
-    status: statusCode >= 500 ? 'error' : 'fail',
-    message,
-    ...(err.details?.code && { code: err.details.code }),
-    ...(err.details && err.details.code === undefined && { details: err.details }),
-    ...(env.NODE_ENV === 'development' && { stack: err.stack }),
-  });
+  // HTTP errors (from http-errors)
+  if (err.statusCode) {
+    return error(res, err.message, err.statusCode);
+  }
+
+  // Default 500
+  return error(res, 'Internal server error', 500);
 }
 
-export default errorHandler;
+module.exports = errorHandler;

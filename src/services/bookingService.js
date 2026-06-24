@@ -1,249 +1,394 @@
-// ─────────────────────────────────────────────────────────────────────
-//  src/services/bookingService.js — Booking business logic
-//  Day 11: createDraft (UC-14)
-//  Day 12: updateDraft (UC-15) — insurance, dropoff, recompute pricing
-// ─────────────────────────────────────────────────────────────────────
-import prisma from '../config/prisma.js';
-import { AppError } from '../utils/AppError.js';
-import { generateBookingCode } from '../utils/bookingCode.js';
-import { acquireLock, releaseLock } from '../utils/redisLock.js';
-import pricingService from '../services/pricingService.js';
-import dayjs from 'dayjs';
+const { sequelize, Booking, BookingHistory, CouponUsage, Car, Coupon } = require('../models');
+const { BOOKING_STATUS, TTL, INSURANCE_TYPE } = require('../config/constants');
+const { computePricing } = require('../utils/pricing');
+const { generateBookingCode } = require('../utils/bookingCode');
+const RedisLockService = require('./RedisLockService');
+const CouponService = require('./CouponService');
+const dayjs = require('dayjs');
 
-const HOLD_MINUTES = 15;
-
-// ─── Helpers ──────────────────────────────────────────────────────────
-
-/**
- * Check if a vehicle has overlapping confirmed bookings in the given date range.
- */
-export async function hasOverlap(vehicleId, pickupAt, returnAt, excludeBookingId = null) {
-  const excludeStatuses = ['CANCELLED', 'EXPIRED'];
-  const where = {
-    vehicleId,
-    status: { notIn: excludeStatuses },
-    pickupAt: { lt: returnAt },
-    returnAt: { gt: pickupAt },
-  };
-  if (excludeBookingId) {
-    where.id = { not: excludeBookingId };
-  }
-  const count = await prisma.booking.count({ where });
-  return count > 0;
-}
-
-/**
- * Check if user already has an active DRAFT for the same vehicle.
- */
-export async function findExistingDraft(userId, vehicleId) {
-  return prisma.booking.findFirst({
-    where: {
-      userId,
-      vehicleId,
-      status: 'DRAFT',
-      holdUntil: { gt: new Date() },
-    },
-  });
-}
-
-// ─── createDraft (UC-14 — Day 11) ───────────────────────────────────
-
-export async function createDraft({
-  userId,
-  vehicleId,
-  pickupAt,
-  returnAt,
-  pickupPoint,
-  dropoffPoint,
-  rentalType,
-  premiumInsurance,
-}) {
-  // 1. Check vehicle exists & is available
-  const vehicle = await prisma.vehicle.findUnique({ where: { id: vehicleId } });
-  if (!vehicle) throw new AppError(404, 'Vehicle not found');
-  if (vehicle.status !== 'AVAILABLE')
-    throw new AppError(400, 'Vehicle is not available for booking');
-
-  // 2. 1 user chỉ có 1 DRAFT chưa thanh toán cho cùng vehicle
-  const existingDraft = await findExistingDraft(userId, vehicleId);
-  if (existingDraft) {
-    throw new AppError(409, 'You already have an active draft booking for this vehicle', {
-      bookingId: existingDraft.id,
-      bookingCode: existingDraft.bookingCode,
-    });
-  }
-
-  // 3. Overlap check
-  const pickup = new Date(pickupAt);
-  const returnDate = new Date(returnAt);
-  const overlap = await hasOverlap(vehicleId, pickup, returnDate);
-  if (overlap) throw new AppError(409, 'Vehicle is already booked for the selected dates');
-
-  // 4. Acquire Redis lock
-  const lockKey = `lock:car:${vehicleId}`;
-  const locked = await acquireLock(lockKey, HOLD_MINUTES * 60);
-  if (!locked)
-    throw new AppError(
-      423,
-      'Vehicle is currently being held by another user. Please try again later.'
-    );
-
-  try {
-    // 5. Calculate pricing
-    const days = pricingService.calculateDays(pickupAt, returnAt);
-    const withDriver = rentalType === 'WITH_DRIVER';
-
-    const pricing = pricingService.calculate({
-      dailyRate: vehicle.pricePerDay,
-      days,
-      withDriver,
-      insuranceRatePercent: 0, // no insurance selected yet in draft
-      pickupPoint,
-      dropoffPoint,
-      couponDiscount: 0,
-      depositAmount: vehicle.depositAmount || 5000000,
+class BookingService {
+  /**
+   * UC-17: Confirm booking (DRAFT → PENDING_PAYMENT)
+   *
+   * Steps:
+   * 1. Validate booking is DRAFT and belongs to user
+   * 2. Validate all required info
+   * 3. Recompute pricing from car record (anti-tampering)
+   * 4. Validate coupon if applied
+   * 5. Atomic transaction:
+   *    - Update Booking: status=PENDING_PAYMENT, pricing snapshot, hold_until + 15min
+   *    - Insert BookingHistory
+   *    - Insert CouponUsage (if coupon)
+   *    - Increment coupon used_count
+   * 6. Extend Redis hold TTL 15 min
+   */
+  async confirmBooking(bookingId, userId) {
+    // 1. Fetch booking
+    const booking = await Booking.findByPk(bookingId, {
+      include: [{ model: Car, as: 'car' }],
     });
 
-    // 6. Insert Booking status=DRAFT, hold_until=now+15m
-    const holdUntil = dayjs().add(HOLD_MINUTES, 'minute').toDate();
-    const bookingCode = generateBookingCode();
+    if (!booking) {
+      throw Object.assign(new Error('Booking not found'), { statusCode: 404 });
+    }
 
-    const booking = await prisma.booking.create({
-      data: {
-        bookingCode,
+    if (booking.renter_id !== userId) {
+      throw Object.assign(new Error('Not authorized to confirm this booking'), { statusCode: 403 });
+    }
+
+    if (booking.status !== BOOKING_STATUS.DRAFT) {
+      throw Object.assign(
+        new Error(`Cannot confirm booking with status ${booking.status}. Expected DRAFT.`),
+        { statusCode: 400 }
+      );
+    }
+
+    // 2. Validate required fields
+    if (!booking.start_date || !booking.end_date) {
+      throw Object.assign(new Error('Start date and end date are required'), { statusCode: 400 });
+    }
+
+    if (!booking.car) {
+      throw Object.assign(new Error('Car not found for this booking'), { statusCode: 400 });
+    }
+
+    // Check hold_until hasn't expired
+    if (booking.hold_until && dayjs().isAfter(dayjs(booking.hold_until))) {
+      throw Object.assign(
+        new Error('Booking hold has expired. Please create a new booking.'),
+        { statusCode: 410 }
+      );
+    }
+
+    // 3. Recompute pricing from car record (anti-tampering)
+    let coupon = null;
+    if (booking.coupon_id) {
+      coupon = await Coupon.findByPk(booking.coupon_id);
+    }
+
+    const insuranceType = booking.insurance_type || INSURANCE_TYPE.NONE;
+    const pricing = computePricing({
+      startDate: booking.start_date,
+      endDate: booking.end_date,
+      pricePerDay: booking.car.price_per_day,
+      insuranceType,
+      coupon,
+    });
+
+    // 4. Validate coupon if present
+    if (coupon) {
+      const validation = await CouponService.validateCoupon(
+        coupon.code,
         userId,
-        vehicleId,
-        rentalType,
-        pickupAt: pickup,
-        returnAt: returnDate,
-        pickupPoint,
-        dropoffPoint,
-        totalDays: days,
-        pricePerDay: vehicle.pricePerDay,
+        pricing.subtotal
+      );
+      if (!validation.valid) {
+        throw Object.assign(new Error(`Coupon invalid: ${validation.error}`), { statusCode: 400 });
+      }
+    }
+
+    // 5. Atomic transaction
+    const newHoldUntil = dayjs().add(TTL.PAYMENT, 'second').toDate();
+
+    const result = await sequelize.transaction(async (t) => {
+      // Update booking
+      await booking.update({
+        status: BOOKING_STATUS.PENDING_PAYMENT,
+        num_days: pricing.num_days,
+        price_per_day: pricing.price_per_day,
+        base_price: pricing.base_price,
+        insurance_type: pricing.insurance_type,
+        insurance_price_per_day: pricing.insurance_price_per_day,
+        insurance_total: pricing.insurance_total,
         subtotal: pricing.subtotal,
-        insuranceFee: 0,
-        couponDiscount: 0,
-        totalAmount: pricing.total,
-        status: 'DRAFT',
-        holdUntil,
-        pricingSnapshot: JSON.stringify(pricing),
-      },
+        discount_amount: pricing.discount_amount,
+        coupon_code: coupon ? coupon.code : null,
+        total_price: pricing.total_price,
+        hold_until: newHoldUntil,
+        confirmed_at: new Date(),
+      }, { transaction: t });
+
+      // Insert BookingHistory
+      await BookingHistory.create({
+        booking_id: booking.id,
+        from_status: BOOKING_STATUS.DRAFT,
+        to_status: BOOKING_STATUS.PENDING_PAYMENT,
+        changed_by: userId,
+        reason: 'Booking confirmed by renter',
+        metadata: {
+          pricing_snapshot: pricing,
+          coupon_code: coupon ? coupon.code : null,
+        },
+      }, { transaction: t });
+
+      // Insert CouponUsage if coupon applied
+      if (coupon) {
+        await CouponUsage.create({
+          coupon_id: coupon.id,
+          user_id: userId,
+          booking_id: booking.id,
+          discount_amount: pricing.discount_amount,
+        }, { transaction: t });
+
+        // Increment coupon used_count
+        await coupon.increment('used_count', { transaction: t });
+      }
+
+      return booking;
     });
 
-    // 7. Insert BookingHistory (DRAFT)
-    await prisma.bookingHistory.create({
-      data: {
-        bookingId: booking.id,
-        status: 'DRAFT',
-        note: 'Booking draft created. Hold expires in 15 minutes.',
-      },
+    // 6. Extend Redis hold TTL
+    try {
+      await RedisLockService.extendHold(
+        booking.car_id,
+        booking.start_date,
+        booking.end_date,
+        booking.id,
+        TTL.PAYMENT
+      );
+    } catch (redisErr) {
+      console.error('[BookingService] Failed to extend Redis hold:', redisErr.message);
+      // Non-fatal: DB is source of truth
+    }
+
+    return result;
+  }
+
+  /**
+   * Get booking detail with breakdown
+   * Accessible by: booking owner (renter), car owner, admin
+   */
+  async getBookingDetail(bookingId, userId, userRole) {
+    const booking = await Booking.findByPk(bookingId, {
+      include: [
+        {
+          model: Car,
+          as: 'car',
+          attributes: ['id', 'owner_id', 'brand', 'model', 'year', 'license_plate', 'price_per_day', 'location', 'seats', 'transmission', 'fuel_type', 'images'],
+        },
+        {
+          model: BookingHistory,
+          as: 'history',
+          attributes: ['id', 'from_status', 'to_status', 'changed_by', 'reason', 'created_at'],
+          order: [['created_at', 'ASC']],
+        },
+        {
+          model: CouponUsage,
+          as: 'couponUsage',
+          include: [{
+            model: Coupon,
+            as: 'coupon',
+            attributes: ['id', 'code', 'type', 'value', 'max_discount'],
+          }],
+        },
+      ],
     });
+
+    if (!booking) {
+      throw Object.assign(new Error('Booking not found'), { statusCode: 404 });
+    }
+
+    // Access control: renter, car owner, or admin
+    const isRenter = booking.renter_id === userId;
+    const isCarOwner = booking.car && booking.car.owner_id === userId;
+    const isAdmin = userRole === 'ADMIN';
+
+    if (!isRenter && !isCarOwner && !isAdmin) {
+      throw Object.assign(new Error('Not authorized to view this booking'), { statusCode: 403 });
+    }
+
+    // Build pricing breakdown
+    const breakdown = {
+      num_days: booking.num_days,
+      price_per_day: Number(booking.price_per_day) || null,
+      base_price: Number(booking.base_price) || null,
+      insurance: {
+        type: booking.insurance_type,
+        price_per_day: Number(booking.insurance_price_per_day) || 0,
+        total: Number(booking.insurance_total) || 0,
+      },
+      coupon: booking.couponUsage ? {
+        code: booking.coupon_code,
+        type: booking.couponUsage.coupon?.type,
+        value: booking.couponUsage.coupon?.value,
+        discount_amount: Number(booking.discount_amount),
+      } : null,
+      subtotal: Number(booking.subtotal) || null,
+      discount_amount: Number(booking.discount_amount) || 0,
+      total_price: Number(booking.total_price) || null,
+    };
+
+    // Get Redis hold TTL if still active
+    let holdInfo = null;
+    if (
+      booking.hold_until &&
+      [BOOKING_STATUS.DRAFT, BOOKING_STATUS.PENDING_PAYMENT].includes(booking.status)
+    ) {
+      try {
+        const ttl = await RedisLockService.getHoldTTL(
+          booking.car_id,
+          booking.start_date,
+          booking.end_date
+        );
+        holdInfo = {
+          hold_until: booking.hold_until,
+          remaining_seconds: ttl > 0 ? ttl : 0,
+          expired: ttl <= 0,
+        };
+      } catch (err) {
+        holdInfo = {
+          hold_until: booking.hold_until,
+          remaining_seconds: null,
+          expired: dayjs().isAfter(dayjs(booking.hold_until)),
+        };
+      }
+    }
 
     return {
-      bookingId: booking.id,
-      code: booking.bookingCode,
-      hold_until: holdUntil.toISOString(),
-      pricing_preview: pricing,
+      booking: {
+        id: booking.id,
+        booking_code: booking.booking_code,
+        status: booking.status,
+        renter_id: booking.renter_id,
+        car_id: booking.car_id,
+        start_date: booking.start_date,
+        end_date: booking.end_date,
+        pickup_time: booking.pickup_time,
+        return_time: booking.return_time,
+        pickup_location: booking.pickup_location,
+        renter_note: booking.renter_note,
+        confirmed_at: booking.confirmed_at,
+        paid_at: booking.paid_at,
+        cancelled_at: booking.cancelled_at,
+        created_at: booking.created_at,
+        updated_at: booking.updated_at,
+      },
+      car: booking.car,
+      pricing_breakdown: breakdown,
+      hold_info: holdInfo,
+      history: booking.history,
     };
-  } catch (error) {
-    await releaseLock(lockKey);
-    throw error;
-  }
-}
-
-// ─── updateDraft (UC-15 — Day 12) ──────────────────────────────────
-// PATCH /bookings/:id — chỉ DRAFT của chính user
-// Cho phép cập nhật: insurance_plan_id, dropoff_point, recompute pricing
-
-export async function updateDraft(userId, bookingId, payload) {
-  // 1. Find booking — must be DRAFT & belong to this user
-  const booking = await prisma.booking.findUnique({
-    where: { id: bookingId },
-    include: { vehicle: true },
-  });
-  if (!booking) throw new AppError(404, 'Booking not found');
-  if (booking.userId !== userId) throw new AppError(403, 'Not your booking');
-  if (booking.status !== 'DRAFT') throw new AppError(400, 'Only DRAFT bookings can be updated');
-
-  // 2. Check holdUntil not expired
-  if (booking.holdUntil && new Date(booking.holdUntil) < new Date()) {
-    throw new AppError(410, 'Booking hold has expired. Please create a new draft.');
   }
 
-  // 3. Resolve insurance plan
-  let insuranceRatePercent = 0;
-  let insurancePlanId = booking.insurancePlanId;
-
-  if (payload.insurancePlanId !== undefined) {
-    if (payload.insurancePlanId === null) {
-      // Remove insurance
-      insurancePlanId = null;
-      insuranceRatePercent = 0;
-    } else {
-      const plan = await prisma.insurancePlan.findUnique({
-        where: { id: payload.insurancePlanId },
-      });
-      if (!plan || !plan.isActive) throw new AppError(404, 'Insurance plan not found or inactive');
-      insurancePlanId = plan.id;
-      insuranceRatePercent = plan.ratePercent;
+  /**
+   * Create a DRAFT booking (assumed to exist from previous days)
+   * Included here for completeness and testing
+   */
+  async createDraft({ renterId, carId, startDate, endDate, pickupTime, returnTime, pickupLocation, renterNote }) {
+    const car = await Car.findByPk(carId);
+    if (!car || !car.is_available) {
+      throw Object.assign(new Error('Car not available'), { statusCode: 400 });
     }
-  } else if (insurancePlanId) {
-    // Keep existing plan — fetch its rate
-    const existingPlan = await prisma.insurancePlan.findUnique({ where: { id: insurancePlanId } });
-    insuranceRatePercent = existingPlan?.ratePercent || 0;
+
+    // Check Redis for existing hold
+    const existingHolder = await RedisLockService.checkHold(carId, startDate, endDate);
+    if (existingHolder) {
+      throw Object.assign(
+        new Error('Car is already being held for these dates'),
+        { statusCode: 409 }
+      );
+    }
+
+    const bookingCode = generateBookingCode();
+    const holdUntil = dayjs().add(TTL.DRAFT, 'second').toDate();
+
+    const booking = await sequelize.transaction(async (t) => {
+      const newBooking = await Booking.create({
+        booking_code: bookingCode,
+        renter_id: renterId,
+        car_id: carId,
+        status: BOOKING_STATUS.DRAFT,
+        start_date: startDate,
+        end_date: endDate,
+        pickup_time: pickupTime,
+        return_time: returnTime,
+        pickup_location: pickupLocation || car.location,
+        renter_note: renterNote,
+        hold_until: holdUntil,
+        insurance_type: 'NONE',
+      }, { transaction: t });
+
+      await BookingHistory.create({
+        booking_id: newBooking.id,
+        from_status: null,
+        to_status: BOOKING_STATUS.DRAFT,
+        changed_by: renterId,
+        reason: 'Booking draft created',
+      }, { transaction: t });
+
+      return newBooking;
+    });
+
+    // Acquire Redis hold
+    try {
+      await RedisLockService.acquireHold(carId, startDate, endDate, booking.id, TTL.DRAFT);
+    } catch (err) {
+      console.error('[BookingService] Failed to acquire Redis hold:', err.message);
+    }
+
+    return booking;
   }
 
-  // 4. Resolve dropoff point
-  const dropoffPoint =
-    payload.dropoffPoint !== undefined ? payload.dropoffPoint : booking.dropoffPoint;
+  /**
+   * Update insurance type on DRAFT booking
+   */
+  async updateInsurance(bookingId, userId, insuranceType) {
+    const booking = await Booking.findByPk(bookingId);
+    if (!booking) throw Object.assign(new Error('Booking not found'), { statusCode: 404 });
+    if (booking.renter_id !== userId) throw Object.assign(new Error('Forbidden'), { statusCode: 403 });
+    if (booking.status !== BOOKING_STATUS.DRAFT) {
+      throw Object.assign(new Error('Can only update insurance on DRAFT booking'), { statusCode: 400 });
+    }
 
-  // 5. Recompute pricing
-  const vehicle = booking.vehicle;
-  const days = booking.totalDays;
-  const withDriver = booking.rentalType === 'WITH_DRIVER';
+    if (!Object.values(INSURANCE_TYPE).includes(insuranceType)) {
+      throw Object.assign(new Error(`Invalid insurance type: ${insuranceType}`), { statusCode: 400 });
+    }
 
-  const pricing = pricingService.calculate({
-    dailyRate: vehicle.pricePerDay,
-    days,
-    withDriver,
-    insuranceRatePercent,
-    pickupPoint: booking.pickupPoint || '',
-    dropoffPoint: dropoffPoint || '',
-    couponDiscount: booking.couponDiscount || 0, // keep existing coupon discount
-    depositAmount: vehicle.depositAmount || 5000000,
-  });
+    await booking.update({ insurance_type: insuranceType });
+    return booking;
+  }
 
-  // 6. Update booking
-  const updated = await prisma.booking.update({
-    where: { id: bookingId },
-    data: {
-      insurancePlanId,
-      dropoffPoint,
-      subtotal: pricing.subtotal,
-      insuranceFee: pricing.insurance_fee,
-      totalAmount: pricing.total,
-      pricingSnapshot: JSON.stringify(pricing),
-    },
-    include: {
-      vehicle: { include: { brand: true, model: true } },
-      insurancePlan: true,
-    },
-  });
+  /**
+   * Apply/remove coupon on DRAFT booking
+   */
+  async applyCoupon(bookingId, userId, couponCode) {
+    const booking = await Booking.findByPk(bookingId, {
+      include: [{ model: Car, as: 'car' }],
+    });
 
-  return {
-    bookingId: updated.id,
-    code: updated.bookingCode,
-    status: updated.status,
-    hold_until: updated.holdUntil?.toISOString(),
-    insurance_plan: updated.insurancePlan
-      ? {
-          id: updated.insurancePlan.id,
-          code: updated.insurancePlan.code,
-          name: updated.insurancePlan.name,
-        }
-      : null,
-    pricing_preview: pricing,
-  };
+    if (!booking) throw Object.assign(new Error('Booking not found'), { statusCode: 404 });
+    if (booking.renter_id !== userId) throw Object.assign(new Error('Forbidden'), { statusCode: 403 });
+    if (booking.status !== BOOKING_STATUS.DRAFT) {
+      throw Object.assign(new Error('Can only apply coupon on DRAFT booking'), { statusCode: 400 });
+    }
+
+    if (!couponCode) {
+      // Remove coupon
+      await booking.update({ coupon_id: null, coupon_code: null, discount_amount: 0 });
+      return booking;
+    }
+
+    // Estimate subtotal for validation
+    const pricing = computePricing({
+      startDate: booking.start_date,
+      endDate: booking.end_date,
+      pricePerDay: booking.car.price_per_day,
+      insuranceType: booking.insurance_type || 'NONE',
+      coupon: null,
+    });
+
+    const validation = await CouponService.validateCoupon(couponCode, userId, pricing.subtotal);
+    if (!validation.valid) {
+      throw Object.assign(new Error(validation.error), { statusCode: 400 });
+    }
+
+    await booking.update({
+      coupon_id: validation.coupon.id,
+      coupon_code: validation.coupon.code,
+    });
+
+    return booking;
+  }
 }
 
-export default { createDraft, updateDraft, hasOverlap, findExistingDraft };
+module.exports = new BookingService();

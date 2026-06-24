@@ -82,8 +82,8 @@ export const couponService = {
     }
 
     // 6. Calculate discount based on type
-    let discount = 0;
-    let message = '';
+    let discount;
+    let message;
 
     switch (coupon.type) {
       case 'FIXED':
