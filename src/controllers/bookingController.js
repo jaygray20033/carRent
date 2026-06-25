@@ -1,4 +1,4 @@
-const BookingService = require('../services/BookingService');
+const BookingService = require('../services/bookingService');
 const { success, created, error } = require('../utils/response');
 
 /**

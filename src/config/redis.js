@@ -9,7 +9,7 @@ function getRedisConnection() {
       host: process.env.REDIS_HOST || '127.0.0.1',
       port: parseInt(process.env.REDIS_PORT, 10) || 6379,
       password: process.env.REDIS_PASSWORD || undefined,
-      maxRetriesPerRequest: null, // required by BullMQ
+      maxRetriesPerRequest: null,
       enableOfflineQueue: false,
       retryStrategy: (times) => {
         if (times > 3) {
@@ -36,9 +36,6 @@ function getRedisConnection() {
   return redis;
 }
 
-/**
- * Try to connect Redis. Returns true if successful.
- */
 async function tryConnectRedis() {
   try {
     const conn = getRedisConnection();
@@ -60,8 +57,8 @@ function closeRedis() {
   if (redis) {
     try {
       redis.disconnect();
-    } catch (err) {
-      console.warn('[Redis] Error during disconnect:', err.message);
+    } catch (_e) {
+      // intentionally ignored
     }
     redis = null;
     redisAvailable = false;

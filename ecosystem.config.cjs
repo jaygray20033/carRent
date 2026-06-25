@@ -1,9 +1,9 @@
 module.exports = {
   apps: [
     {
-      name: 'carrent-be',
-      script: 'src/server.js',
-      cwd: '/home/user/webapp',
+      name: 'otorent-be',
+      script: 'src/app.js',
+      cwd: '/home/user/webapp/carRent-be',
       env: {
         NODE_ENV: 'development',
         PORT: 4000,

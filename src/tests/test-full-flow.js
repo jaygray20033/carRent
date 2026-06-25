@@ -7,7 +7,7 @@
 require('dotenv').config();
 
 const { sequelize, Booking, BookingHistory, Car, User, Coupon, CouponUsage } = require('../models');
-const BookingService = require('../services/BookingService');
+const BookingService = require('../services/bookingService');
 const { processReleaseHold } = require('../jobs/releaseHoldWorker');
 const { BOOKING_STATUS, INSURANCE_TYPE } = require('../config/constants');
 const bcrypt = require('bcryptjs');

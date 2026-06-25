@@ -6,24 +6,6 @@ import prisma from '../../../config/prisma.js';
 import { AppError } from '../../../utils/AppError.js';
 
 export const couponService = {
-  /**
-   * Validate a coupon code against a booking.
-   *
-   * Rules:
-   * 1. Coupon must exist, be active, start ≤ now ≤ end
-   * 2. Booking must exist & belong to user & be DRAFT
-   * 3. booking.subtotal ≥ coupon.min_order
-   * 4. Global usage < coupon.max_use (0 = unlimited)
-   * 5. Per-user usage < coupon.max_use_per_user
-   * 6. Calculate discount based on type: FIXED / PERCENT / FREE_DRIVER
-   *
-   * Does NOT insert CouponUsage — that happens at UC-17 (confirm booking, Day 13).
-   *
-   * @param {string} code - Coupon code
-   * @param {number} bookingId - Booking ID
-   * @param {number} userId - Current user ID
-   * @returns {Promise<{ valid: boolean, discount: number, message: string, coupon: object }>}
-   */
   async validate(code, bookingId, userId) {
     const now = new Date();
 
@@ -57,7 +39,7 @@ export const couponService = {
       throw new AppError(400, 'Coupon can only be applied to DRAFT bookings');
     }
 
-    // 3. min_order check — use subtotal (rental cost only, no insurance/tax/deposit)
+    // 3. min_order check
     const subtotal = booking.subtotal || booking.pricePerDay * booking.totalDays;
     if (coupon.minOrder > 0 && subtotal < coupon.minOrder) {
       throw new AppError(422, `Minimum order is ${coupon.minOrder.toLocaleString('vi-VN')} VND`, {
@@ -82,8 +64,8 @@ export const couponService = {
     }
 
     // 6. Calculate discount based on type
-    let discount;
-    let message;
+    let discount; // ✅ không gán giá trị mặc định
+    let message; // ✅ không gán giá trị mặc định
 
     switch (coupon.type) {
       case 'FIXED':
@@ -93,7 +75,6 @@ export const couponService = {
 
       case 'PERCENT':
         discount = Math.round(subtotal * (coupon.value / 100));
-        // Apply max_discount cap if set
         if (coupon.maxDiscount && discount > coupon.maxDiscount) {
           discount = coupon.maxDiscount;
         }
@@ -103,8 +84,7 @@ export const couponService = {
         break;
 
       case 'FREE_DRIVER': {
-        // Free driver fee = driverRate × days
-        const driverRate = 500000; // same as pricingService default
+        const driverRate = 500000;
         const driverFee = driverRate * booking.totalDays;
         if (booking.rentalType === 'WITH_DRIVER') {
           discount = driverFee;

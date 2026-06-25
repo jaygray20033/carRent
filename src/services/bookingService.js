@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const { sequelize, Booking, BookingHistory, CouponUsage, Car, Coupon } = require('../models');
 const { BOOKING_STATUS, TTL, INSURANCE_TYPE } = require('../config/constants');
 const { computePricing } = require('../utils/pricing');
@@ -7,6 +8,196 @@ const CouponService = require('./CouponService');
 const dayjs = require('dayjs');
 
 class BookingService {
+  /**
+   * Day 14: Record a booking status change into BookingHistory.
+   *
+   * This is the single, reusable entry point for status transitions so that
+   * **every status update inserts a BookingHistory row** (UC-48 requirement).
+   *
+   * It atomically updates the Booking status + extra fields AND inserts the
+   * audit trail. Pass an existing transaction to participate in a larger one.
+   *
+   * @param {object} options
+   * @param {object} options.booking       Sequelize Booking instance (already loaded)
+   * @param {string} options.toStatus      New status (BOOKING_STATUS.*)
+   * @param {number|null} options.changedBy User id who triggered it (null = system)
+   * @param {string|null} options.reason   Human-readable reason
+   * @param {object|null} options.metadata Optional JSON metadata snapshot
+   * @param {object}      options.extraFields Additional Booking fields to update
+   * @param {object|null} options.transaction Optional existing transaction
+   * @returns {Promise<object>} the updated Booking
+   */
+  async changeStatus({
+    booking,
+    toStatus,
+    changedBy = null,
+    reason = null,
+    metadata = null,
+    extraFields = {},
+    transaction = null,
+  }) {
+    const fromStatus = booking.status;
+
+    const run = async (t) => {
+      await booking.update(
+        { status: toStatus, ...extraFields },
+        { transaction: t }
+      );
+
+      await BookingHistory.create(
+        {
+          booking_id: booking.id,
+          from_status: fromStatus,
+          to_status: toStatus,
+          changed_by: changedBy,
+          reason,
+          metadata,
+        },
+        { transaction: t }
+      );
+
+      return booking;
+    };
+
+    if (transaction) {
+      return run(transaction);
+    }
+    return sequelize.transaction(run);
+  }
+
+  /**
+   * Day 14 / UC-47: List bookings of the current user.
+   *
+   * GET /api/v1/me/bookings?status=&page=&limit=
+   *
+   * @param {object} params
+   * @param {number} params.userId  current user id (renter)
+   * @param {string} [params.status] optional status filter (DRAFT, PAID, ...)
+   * @param {number} [params.page=1] page number (1-based)
+   * @param {number} [params.limit=10] page size (max 50)
+   * @returns {Promise<{items: object[], pagination: object}>}
+   */
+  async listMyBookings({ userId, status, page = 1, limit = 10 }) {
+    const safePage = Math.max(1, parseInt(page, 10) || 1);
+    let safeLimit = parseInt(limit, 10) || 10;
+    if (safeLimit < 1) safeLimit = 10;
+    if (safeLimit > 50) safeLimit = 50;
+    const offset = (safePage - 1) * safeLimit;
+
+    const where = { renter_id: userId };
+
+    if (status) {
+      const validStatuses = Object.values(BOOKING_STATUS);
+      const requested = String(status)
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+
+      const invalid = requested.filter((s) => !validStatuses.includes(s));
+      if (invalid.length > 0) {
+        throw Object.assign(
+          new Error(`Invalid status: ${invalid.join(', ')}. Valid: ${validStatuses.join(', ')}`),
+          { statusCode: 400 }
+        );
+      }
+
+      where.status = requested.length === 1 ? requested[0] : { [Op.in]: requested };
+    }
+
+    const { count, rows } = await Booking.findAndCountAll({
+      where,
+      include: [
+        {
+          model: Car,
+          as: 'car',
+          attributes: [
+            'id', 'brand', 'model', 'year', 'license_plate',
+            'price_per_day', 'location', 'seats', 'transmission',
+            'fuel_type', 'images',
+          ],
+        },
+      ],
+      order: [['created_at', 'DESC']],
+      limit: safeLimit,
+      offset,
+      distinct: true,
+    });
+
+    const items = rows.map((b) => ({
+      id: b.id,
+      booking_code: b.booking_code,
+      status: b.status,
+      car: b.car
+        ? {
+            id: b.car.id,
+            brand: b.car.brand,
+            model: b.car.model,
+            year: b.car.year,
+            license_plate: b.car.license_plate,
+            location: b.car.location,
+            seats: b.car.seats,
+            transmission: b.car.transmission,
+            fuel_type: b.car.fuel_type,
+            price_per_day: Number(b.car.price_per_day) || null,
+            image: Array.isArray(b.car.images) && b.car.images.length ? b.car.images[0] : null,
+          }
+        : null,
+      start_date: b.start_date,
+      end_date: b.end_date,
+      pickup_time: b.pickup_time,
+      return_time: b.return_time,
+      pickup_location: b.pickup_location,
+      num_days: b.num_days,
+      total_price: Number(b.total_price) || null,
+      discount_amount: Number(b.discount_amount) || 0,
+      insurance_type: b.insurance_type,
+      coupon_code: b.coupon_code,
+      hold_until: b.hold_until,
+      confirmed_at: b.confirmed_at,
+      paid_at: b.paid_at,
+      cancelled_at: b.cancelled_at,
+      created_at: b.created_at,
+      updated_at: b.updated_at,
+    }));
+
+    const totalPages = Math.max(1, Math.ceil(count / safeLimit));
+
+    return {
+      items,
+      pagination: {
+        total: count,
+        page: safePage,
+        limit: safeLimit,
+        total_pages: totalPages,
+        has_next: safePage < totalPages,
+        has_prev: safePage > 1,
+      },
+    };
+  }
+
+  /**
+   * Day 14 / UC-48: Detail of one booking owned by the current user.
+   *
+   * GET /api/v1/me/bookings/:id
+   *
+   * Unlike getBookingDetail (which also allows car owner / admin), this is
+   * strictly scoped to the renter — a user may only view their own bookings
+   * via the /me namespace.
+   */
+  async getMyBookingDetail(bookingId, userId) {
+    const booking = await Booking.findByPk(bookingId);
+
+    if (!booking) {
+      throw Object.assign(new Error('Booking not found'), { statusCode: 404 });
+    }
+
+    if (booking.renter_id !== userId) {
+      throw Object.assign(new Error('Not authorized to view this booking'), { statusCode: 403 });
+    }
+
+    // Reuse the rich detail builder (renter is always allowed for own booking)
+    return this.getBookingDetail(bookingId, userId, 'USER');
+  }
   /**
    * UC-17: Confirm booking (DRAFT → PENDING_PAYMENT)
    *
