@@ -2,7 +2,7 @@
 //  src/api/v1/insurance-plans/insurancePlan.service.js
 //  Day 12 — UC-15: List insurance plans from DB
 // ─────────────────────────────────────────────────────────────────────
-import prisma from '../../../config/prisma.js';
+import prisma from '../../../config/db.js';
 
 export const insurancePlanService = {
   /**

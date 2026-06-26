@@ -53,4 +53,12 @@ export const updateDraftSchema = z
     message: 'At least one of insurancePlanId or dropoffPoint must be provided',
   });
 
-export default { createDraftSchema, updateDraftSchema };
+/**
+ * POST /api/v1/bookings/:id/confirm  — DRAFT → PENDING_PAYMENT
+ * Optional coupon_code to apply at confirmation time.
+ */
+export const confirmBookingSchema = z.object({
+  coupon_code: z.string().min(2).max(50).optional(),
+});
+
+export default { createDraftSchema, updateDraftSchema, confirmBookingSchema };

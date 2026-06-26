@@ -39,6 +39,7 @@ export default [
       'coverage/**',
       'logs/**',
       'prisma/migrations/**',
+      '_legacy/**',
     ],
   },
   // Disable stylistic rules that conflict with Prettier

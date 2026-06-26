@@ -1,26 +1,39 @@
 // ─────────────────────────────────────────────────────────────────────
 //  src/api/v1/bookings/booking.routes.js — Booking routes
-//  Day 11: POST /draft (UC-14)
-//  Day 12: PATCH /:id  (UC-15)
+//    UC-14 createDraft · UC-15 updateDraft · UC-16 confirm
 // ─────────────────────────────────────────────────────────────────────
 import { Router } from 'express';
-import { createDraft, updateDraft } from './booking.controller.js';
+import {
+  createDraft,
+  updateDraft,
+  confirmBooking,
+  listMyBookings,
+  getBookingDetail,
+  cancelBooking,
+} from './booking.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 
 const router = Router();
 
-/**
- * POST /api/v1/bookings/draft
- * @description Create a draft booking (UC-14)
- * @access Private (requires authentication)
- */
-router.post('/draft', authenticate, createDraft);
+// All booking routes require authentication.
+router.use(authenticate);
 
-/**
- * PATCH /api/v1/bookings/:id
- * @description Update a DRAFT booking — insurance, dropoff_point, recompute pricing (UC-15)
- * @access Private (owner of the DRAFT only)
- */
-router.patch('/:id', authenticate, updateDraft);
+// POST /api/v1/bookings/draft — create a DRAFT booking (UC-14)
+router.post('/draft', createDraft);
+
+// GET /api/v1/bookings — list current user's bookings
+router.get('/', listMyBookings);
+
+// GET /api/v1/bookings/:id — booking detail (owner / ADMIN / OPERATOR)
+router.get('/:id', getBookingDetail);
+
+// PATCH /api/v1/bookings/:id — update a DRAFT (insurance, dropoff) (UC-15)
+router.patch('/:id', updateDraft);
+
+// POST /api/v1/bookings/:id/confirm — DRAFT → PENDING_PAYMENT (UC-16)
+router.post('/:id/confirm', confirmBooking);
+
+// POST /api/v1/bookings/:id/cancel — cancel a booking
+router.post('/:id/cancel', cancelBooking);
 
 export default router;

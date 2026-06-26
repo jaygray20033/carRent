@@ -1,30 +1,24 @@
 // ─────────────────────────────────────────────────────────────────────
 //  src/api/v1/bookings/booking.controller.js — Booking handlers
-//  Day 11: createDraft (UC-14)
-//  Day 12: updateDraft (UC-15)
+//    UC-14 createDraft · UC-15 updateDraft · UC-16 confirm
 // ─────────────────────────────────────────────────────────────────────
-import bookingService from '../../../services/bookingService.js';
-import { createDraftSchema, updateDraftSchema } from '../../../validators/booking.validator.js';
-import { AppError } from '../../../utils/AppError.js';
+import { bookingService } from './booking.service.js';
+import {
+  createDraftSchema,
+  updateDraftSchema,
+  confirmBookingSchema,
+} from '../../../validators/booking.validator.js';
+import { ValidationError } from '../../../utils/apiError.js';
+import { success, created } from '../../../utils/apiResponse.js';
 
-/**
- * POST /api/v1/bookings/draft
- * Create a draft booking with 15-min hold.
- */
+const toFieldErrors = (zodError) =>
+  zodError.errors.map((e) => ({ field: e.path.join('.'), message: e.message }));
+
+// POST /api/v1/bookings/draft
 export async function createDraft(req, res, next) {
   try {
     const parsed = createDraftSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const errors = parsed.error.errors.map((e) => ({
-        field: e.path.join('.'),
-        message: e.message,
-      }));
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Validation failed',
-        errors,
-      });
-    }
+    if (!parsed.success) throw new ValidationError(toFieldErrors(parsed.error));
 
     const {
       vehicleId,
@@ -36,10 +30,8 @@ export async function createDraft(req, res, next) {
       premium_insurance,
     } = parsed.data;
 
-    const userId = req.user.id;
-
     const result = await bookingService.createDraft({
-      userId,
+      userId: req.user.id,
       vehicleId,
       pickupAt: pickup_at,
       returnAt: return_at,
@@ -49,65 +41,98 @@ export async function createDraft(req, res, next) {
       premiumInsurance: premium_insurance,
     });
 
-    return res.status(201).json({
-      status: 'success',
-      message: 'Booking draft created successfully',
-      data: result,
-    });
+    return created(res, result, 'Booking draft created successfully');
   } catch (error) {
-    if (error instanceof AppError) {
-      return res.status(error.statusCode).json({
-        status: error.status,
-        message: error.message,
-        ...(error.details && { details: error.details }),
-      });
-    }
     next(error);
   }
 }
 
-/**
- * PATCH /api/v1/bookings/:id
- * Update a DRAFT booking (only own DRAFT): insurance_plan_id, dropoff_point, recompute pricing.
- */
+// PATCH /api/v1/bookings/:id
 export async function updateDraft(req, res, next) {
   try {
-    const bookingId = parseInt(req.params.id, 10);
-    if (isNaN(bookingId)) {
-      return res.status(400).json({ status: 'fail', message: 'Invalid booking ID' });
-    }
+    const bookingId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(bookingId)) throw new ValidationError([{ field: 'id', message: 'Invalid booking ID' }]);
 
     const parsed = updateDraftSchema.safeParse(req.body);
-    if (!parsed.success) {
-      const errors = parsed.error.errors.map((e) => ({
-        field: e.path.join('.'),
-        message: e.message,
-      }));
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Validation failed',
-        errors,
-      });
-    }
+    if (!parsed.success) throw new ValidationError(toFieldErrors(parsed.error));
 
-    const userId = req.user.id;
-    const result = await bookingService.updateDraft(userId, bookingId, parsed.data);
-
-    return res.status(200).json({
-      status: 'success',
-      message: 'Booking draft updated successfully',
-      data: result,
-    });
+    const result = await bookingService.updateDraft(req.user.id, bookingId, parsed.data);
+    return success(res, result, 'Booking draft updated successfully');
   } catch (error) {
-    if (error instanceof AppError) {
-      return res.status(error.statusCode).json({
-        status: error.status,
-        message: error.message,
-        ...(error.details && { details: error.details }),
-      });
-    }
     next(error);
   }
 }
 
-export default { createDraft, updateDraft };
+// POST /api/v1/bookings/:id/confirm
+export async function confirmBooking(req, res, next) {
+  try {
+    const bookingId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(bookingId)) throw new ValidationError([{ field: 'id', message: 'Invalid booking ID' }]);
+
+    const parsed = confirmBookingSchema.safeParse(req.body ?? {});
+    if (!parsed.success) throw new ValidationError(toFieldErrors(parsed.error));
+
+    const result = await bookingService.confirm(req.user.id, bookingId, {
+      couponCode: parsed.data.coupon_code,
+    });
+    return success(res, result, 'Booking confirmed, awaiting payment');
+  } catch (error) {
+    next(error);
+  }
+}
+
+// GET /api/v1/bookings
+export async function listMyBookings(req, res, next) {
+  try {
+    const page = Number.parseInt(req.query.page, 10) || 1;
+    const limit = Number.parseInt(req.query.limit, 10) || 12;
+    const result = await bookingService.listByUser(req.user.id, {
+      page,
+      limit,
+      status: req.query.status,
+    });
+    return success(res, result, 'Bookings fetched');
+  } catch (error) {
+    next(error);
+  }
+}
+
+// GET /api/v1/bookings/:id
+export async function getBookingDetail(req, res, next) {
+  try {
+    const bookingId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(bookingId)) throw new ValidationError([{ field: 'id', message: 'Invalid booking ID' }]);
+
+    const result = await bookingService.getById(req.user.id, req.user.role?.code, bookingId);
+    return success(res, result, 'Booking detail fetched');
+  } catch (error) {
+    next(error);
+  }
+}
+
+// POST /api/v1/bookings/:id/cancel
+export async function cancelBooking(req, res, next) {
+  try {
+    const bookingId = Number.parseInt(req.params.id, 10);
+    if (Number.isNaN(bookingId)) throw new ValidationError([{ field: 'id', message: 'Invalid booking ID' }]);
+
+    const result = await bookingService.cancel(
+      req.user.id,
+      req.user.role?.code,
+      bookingId,
+      req.body?.reason
+    );
+    return success(res, result, 'Booking cancelled');
+  } catch (error) {
+    next(error);
+  }
+}
+
+export default {
+  createDraft,
+  updateDraft,
+  confirmBooking,
+  listMyBookings,
+  getBookingDetail,
+  cancelBooking,
+};

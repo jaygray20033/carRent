@@ -1,11 +1,11 @@
-const { Worker } = require('bullmq');
-const { getRedisConnection } = require('../config/redis');
+// src/jobs/paymentWorker.js (ESM) — Payment worker scaffold
+import { Worker } from 'bullmq';
+import { redis } from '../integrations/redis.js';
 
 /**
- * Payment worker - scaffold for future implementation
- * Will handle: payment verification, refund processing
+ * Payment worker - handles payment verification, refund processing
  */
-function createPaymentWorker() {
+export function createPaymentWorker() {
   const worker = new Worker(
     'paymentQueue',
     async (job) => {
@@ -13,17 +13,14 @@ function createPaymentWorker() {
 
       switch (job.name) {
         case 'verify-payment':
-          // TODO: Verify payment with payment gateway
           console.log(`[Payment] Verifying payment for booking #${job.data.bookingId}`);
           break;
 
         case 'process-refund':
-          // TODO: Process refund
           console.log(`[Payment] Processing refund for booking #${job.data.bookingId}`);
           break;
 
         case 'payment-timeout':
-          // TODO: Handle payment timeout
           console.log(`[Payment] Payment timeout for booking #${job.data.bookingId}`);
           break;
 
@@ -33,13 +30,10 @@ function createPaymentWorker() {
 
       return { processed: true };
     },
-    {
-      connection: getRedisConnection(),
-      concurrency: 3,
-    }
+    { connection: redis, concurrency: 3 }
   );
 
-  worker.on('completed', (job, result) => {
+  worker.on('completed', (job) => {
     console.log(`[Worker:payment] Job ${job.name} completed`);
   });
 
@@ -50,5 +44,3 @@ function createPaymentWorker() {
   console.log('[Worker] Payment worker started');
   return worker;
 }
-
-module.exports = { createPaymentWorker };

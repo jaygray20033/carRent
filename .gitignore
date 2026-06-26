@@ -1,7 +1,22 @@
 node_modules/
-database.sqlite
 .env
 *.log
 dist/
 coverage/
 .DS_Store
+
+# Prisma local dev
+.wrangler/
+prisma/dev.db
+prisma/dev.db-journal
+
+# Uploads (user content)
+uploads/*
+!uploads/.gitkeep
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+Thumbs.db

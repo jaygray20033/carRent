@@ -4,6 +4,7 @@ export default {
   // ESM: do not transform; rely on Node's native ESM via --experimental-vm-modules
   transform: {},
   testMatch: ['**/tests/**/*.test.js', '**/?(*.)+(spec|test).js'],
+  testPathIgnorePatterns: ['/node_modules/', '/_legacy/'],
   setupFilesAfterEnv: ['<rootDir>/tests/setup.js'],
   moduleNameMapper: {
     // Use an in-memory fake instead of real ioredis during tests

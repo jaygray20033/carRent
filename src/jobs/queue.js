@@ -1,70 +1,16 @@
-const { Queue } = require('bullmq');
-const { getRedisConnection } = require('../config/redis');
+// src/jobs/queue.js (ESM) — BullMQ queues using unified Redis client
+import { Queue } from 'bullmq';
+import { redis } from '../integrations/redis.js';
 
-const connection = getRedisConnection();
+const defaultOpts = { removeOnComplete: 100, removeOnFail: 200, attempts: 3, backoff: { type: 'exponential', delay: 2000 } };
 
-// 3 queues as specified
-const bookingQueue = new Queue('bookingQueue', {
-  connection,
-  defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 200,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 2000 },
-  },
-});
+export const bookingQueue = new Queue('bookingQueue', { connection: redis, defaultJobOptions: defaultOpts });
+export const notificationQueue = new Queue('notificationQueue', { connection: redis, defaultJobOptions: defaultOpts });
+export const paymentQueue = new Queue('paymentQueue', { connection: redis, defaultJobOptions: defaultOpts });
 
-const notificationQueue = new Queue('notificationQueue', {
-  connection,
-  defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 200,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 2000 },
-  },
-});
-
-const paymentQueue = new Queue('paymentQueue', {
-  connection,
-  defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 200,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 2000 },
-  },
-});
-
-/**
- * Schedule the repeating release-hold cron job
- * Runs every 1 minute
- */
-async function scheduleReleaseHoldCron() {
-  // Remove existing repeatable jobs to avoid duplicates
-  const existingJobs = await bookingQueue.getRepeatableJobs();
-  for (const job of existingJobs) {
-    if (job.name === 'release-hold-job') {
-      await bookingQueue.removeRepeatableByKey(job.key);
-    }
-  }
-
-  // Add new repeatable job - every 1 minute
-  await bookingQueue.add(
-    'release-hold-job',
-    { type: 'release-hold-scan' },
-    {
-      repeat: {
-        every: 60 * 1000, // 1 minute in ms
-      },
-      jobId: 'release-hold-cron',
-    }
-  );
-
+export async function scheduleReleaseHoldCron() {
+  const existing = await bookingQueue.getRepeatableJobs();
+  for (const job of existing) { if (job.name === 'release-hold-job') await bookingQueue.removeRepeatableByKey(job.key); }
+  await bookingQueue.add('release-hold-job', { type: 'release-hold-scan' }, { repeat: { every: 60_000 }, jobId: 'release-hold-cron' });
   console.log('[Queue] Scheduled release-hold-job cron (every 1 minute)');
 }
-
-module.exports = {
-  bookingQueue,
-  notificationQueue,
-  paymentQueue,
-  scheduleReleaseHoldCron,
-};

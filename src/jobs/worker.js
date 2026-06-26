@@ -1,24 +1,20 @@
-/**
- * Standalone worker process
- * Run with: node src/jobs/worker.js
- *
- * This starts all BullMQ workers and the cron scheduler.
- * Can be run separately from the main app for scaling.
- */
-require('dotenv').config();
+// src/jobs/worker.js (ESM) — Standalone worker process
+// Run with: node src/jobs/worker.js
+//
+// Also exports startWorkers() for use in server.js (inline workers mode)
+import 'dotenv/config';
+import prisma from '../config/db.js';
+import { createReleaseHoldWorker } from './releaseHoldWorker.js';
+import { createNotificationWorker } from './notificationWorker.js';
+import { createPaymentWorker } from './paymentWorker.js';
+import { scheduleReleaseHoldCron } from './queue.js';
 
-const { createReleaseHoldWorker } = require('./releaseHoldWorker');
-const { createNotificationWorker } = require('./notificationWorker');
-const { createPaymentWorker } = require('./paymentWorker');
-const { scheduleReleaseHoldCron } = require('./queue');
+export async function startWorkers() {
+  console.log('[Workers] Starting BullMQ workers...');
 
-async function startWorkers() {
-  console.log('=== Starting OtoRent Workers ===');
-
-  // Initialize DB connection (models need it)
-  const { sequelize } = require('../models');
-  await sequelize.authenticate();
-  console.log('[DB] Connection established');
+  // Verify DB connection (Prisma)
+  await prisma.$queryRaw`SELECT 1`;
+  console.log('[Workers] DB connection OK');
 
   // Start workers
   const releaseHoldWorker = createReleaseHoldWorker();
@@ -28,15 +24,15 @@ async function startWorkers() {
   // Schedule cron jobs
   await scheduleReleaseHoldCron();
 
-  console.log('=== All workers started ===');
+  console.log('[Workers] All workers started');
 
-  // Graceful shutdown
+  // Graceful shutdown handler (only used when running standalone)
   const shutdown = async (signal) => {
-    console.log(`\n[Worker] Received ${signal}, shutting down gracefully...`);
+    console.log(`\n[Workers] Received ${signal}, shutting down gracefully...`);
     await releaseHoldWorker.close();
     await notificationWorker.close();
     await paymentWorker.close();
-    await sequelize.close();
+    await prisma.$disconnect();
     process.exit(0);
   };
 
@@ -44,7 +40,11 @@ async function startWorkers() {
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
-startWorkers().catch((err) => {
-  console.error('[Worker] Failed to start:', err);
-  process.exit(1);
-});
+// If run directly as standalone worker process
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  startWorkers().catch((err) => {
+    console.error('[Workers] Failed to start:', err);
+    process.exit(1);
+  });
+}

@@ -1,138 +1,38 @@
-const { Worker } = require('bullmq');
-const { Op } = require('sequelize');
-const { getRedisConnection } = require('../config/redis');
-const { sequelize, Booking, BookingHistory } = require('../models');
-const { BOOKING_STATUS } = require('../config/constants');
-const RedisLockService = require('../services/RedisLockService');
+// src/jobs/releaseHoldWorker.js (ESM) — Prisma-based release-hold worker
+import { Worker } from 'bullmq';
+import { redis } from '../integrations/redis.js';
+import prisma from '../config/db.js';
+import { BOOKING_STATUS } from '../config/constants.js';
+import RedisLockService from '../services/RedisLockService.js';
 
-/**
- * Release-hold worker
- *
- * Scans bookings with status DRAFT or PENDING_PAYMENT
- * where hold_until < now → sets CANCELLED + releases Redis lock
- */
 async function processReleaseHold(job) {
   console.log(`[Worker:release-hold] Running scan at ${new Date().toISOString()}`);
-
   const now = new Date();
-
-  // Find expired bookings
-  const expiredBookings = await Booking.findAll({
-    where: {
-      status: {
-        [Op.in]: [BOOKING_STATUS.DRAFT, BOOKING_STATUS.PENDING_PAYMENT],
-      },
-      hold_until: {
-        [Op.lt]: now,
-      },
-    },
+  const expiredBookings = await prisma.booking.findMany({
+    where: { status: { in: [BOOKING_STATUS.DRAFT, BOOKING_STATUS.PENDING_PAYMENT] }, holdUntil: { lt: now } },
   });
-
-  if (expiredBookings.length === 0) {
-    console.log('[Worker:release-hold] No expired bookings found');
-    return { cancelled: 0 };
-  }
-
+  if (!expiredBookings.length) { console.log('[Worker:release-hold] No expired bookings'); return { cancelled: 0 }; }
   console.log(`[Worker:release-hold] Found ${expiredBookings.length} expired bookings`);
-
   let cancelledCount = 0;
-
   for (const booking of expiredBookings) {
     try {
-      await sequelize.transaction(async (t) => {
-        const previousStatus = booking.status;
-
-        // Update booking to CANCELLED
-        await booking.update({
-          status: BOOKING_STATUS.CANCELLED,
-          cancel_reason: `Auto-cancelled: ${previousStatus} hold expired (hold_until: ${booking.hold_until})`,
-          cancelled_at: now,
-        }, { transaction: t });
-
-        // Insert BookingHistory
-        await BookingHistory.create({
-          booking_id: booking.id,
-          from_status: previousStatus,
-          to_status: BOOKING_STATUS.CANCELLED,
-          changed_by: null, // system
-          reason: `Auto-cancelled: ${previousStatus} hold expired`,
-          metadata: {
-            hold_until: booking.hold_until,
-            cancelled_at: now.toISOString(),
-            auto: true,
-          },
-        }, { transaction: t });
-
-        // If coupon was applied during PENDING_PAYMENT, revert coupon usage
-        // (CouponUsage only exists after confirm, so only for PENDING_PAYMENT)
-        if (previousStatus === BOOKING_STATUS.PENDING_PAYMENT && booking.coupon_id) {
-          const { CouponUsage, Coupon } = require('../models');
-
-          await CouponUsage.destroy({
-            where: { booking_id: booking.id },
-            transaction: t,
-          });
-
-          await Coupon.decrement('used_count', {
-            where: { id: booking.coupon_id },
-            transaction: t,
-          });
-        }
+      const prev = booking.status;
+      await prisma.$transaction(async (tx) => {
+        await tx.booking.update({ where: { id: booking.id }, data: { status: BOOKING_STATUS.CANCELLED, cancelReason: `Auto-cancelled: ${prev} hold expired` } });
+        await tx.bookingHistory.create({ data: { bookingId: booking.id, fromStatus: prev, toStatus: BOOKING_STATUS.CANCELLED, note: `Auto-cancelled: ${prev} hold expired`, metadata: JSON.stringify({ holdUntil: booking.holdUntil, auto: true }) } });
       });
-
-      // Release Redis lock
-      try {
-        await RedisLockService.releaseHold(
-          booking.car_id,
-          booking.start_date,
-          booking.end_date,
-          booking.id
-        );
-      } catch (redisErr) {
-        console.error(`[Worker:release-hold] Redis release failed for booking ${booking.id}:`, redisErr.message);
-      }
-
+      try { await RedisLockService.releaseHold(booking.vehicleId, booking.pickupAt, booking.returnAt, booking.id); } catch { /* best-effort: hold may already be gone */ }
       cancelledCount++;
-      console.log(`[Worker:release-hold] Cancelled booking #${booking.id} (${booking.booking_code})`);
-    } catch (err) {
-      console.error(`[Worker:release-hold] Failed to cancel booking #${booking.id}:`, err.message);
-    }
+      console.log(`[Worker:release-hold] Cancelled booking #${booking.id} (${booking.bookingCode})`);
+    } catch (err) { console.error(`[Worker:release-hold] Failed #${booking.id}:`, err.message); }
   }
-
-  console.log(`[Worker:release-hold] Done. Cancelled ${cancelledCount}/${expiredBookings.length} bookings`);
   return { cancelled: cancelledCount, total: expiredBookings.length };
 }
 
-/**
- * Create and start the worker
- */
-function createReleaseHoldWorker() {
-  const worker = new Worker(
-    'bookingQueue',
-    async (job) => {
-      if (job.name === 'release-hold-job') {
-        return processReleaseHold(job);
-      }
-      console.log(`[Worker:bookingQueue] Unknown job: ${job.name}`);
-    },
-    {
-      connection: getRedisConnection(),
-      concurrency: 1,
-    }
-  );
-
-  worker.on('completed', (job, result) => {
-    if (job.name === 'release-hold-job') {
-      console.log(`[Worker:release-hold] Job completed:`, result);
-    }
-  });
-
-  worker.on('failed', (job, err) => {
-    console.error(`[Worker:bookingQueue] Job ${job?.name} failed:`, err.message);
-  });
-
+export function createReleaseHoldWorker() {
+  const worker = new Worker('bookingQueue', async (job) => { if (job.name === 'release-hold-job') return processReleaseHold(job); }, { connection: redis, concurrency: 1 });
+  worker.on('completed', (job, result) => { if (job.name === 'release-hold-job') console.log('[Worker:release-hold] Done:', result); });
+  worker.on('failed', (job, err) => { console.error(`[Worker:bookingQueue] Failed:`, err.message); });
   console.log('[Worker] Release-hold worker started');
   return worker;
 }
-
-module.exports = { createReleaseHoldWorker, processReleaseHold };

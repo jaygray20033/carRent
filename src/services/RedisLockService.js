@@ -1,34 +1,21 @@
-const { getRedisConnection, isRedisAvailable } = require('../config/redis');
-const { REDIS_KEY } = require('../config/constants');
+// src/services/RedisLockService.js (ESM)
+import { redis } from '../integrations/redis.js';
+import { REDIS_KEY } from '../config/constants.js';
 
 class RedisLockService {
-  get redis() {
-    return getRedisConnection();
-  }
+  get redis() { return redis; }
 
-  /**
-   * Create a hold lock for a car in a date range
-   * Key: booking:hold:{carId}:{startDate}:{endDate}
-   * Value: bookingId
-   */
+  _isAvailable() { return redis && redis.status !== 'noop'; }
+
   async acquireHold(carId, startDate, endDate, bookingId, ttlSeconds) {
-    if (!isRedisAvailable()) {
-      console.warn('[RedisLock] Redis not available, skipping acquireHold');
-      return true; // graceful degradation
-    }
+    if (!this._isAvailable()) return true;
     const key = `${REDIS_KEY.BOOKING_HOLD}${carId}:${startDate}:${endDate}`;
     const result = await this.redis.set(key, bookingId.toString(), 'EX', ttlSeconds, 'NX');
     return result === 'OK';
   }
 
-  /**
-   * Extend TTL of an existing hold
-   */
   async extendHold(carId, startDate, endDate, bookingId, ttlSeconds) {
-    if (!isRedisAvailable()) {
-      console.warn('[RedisLock] Redis not available, skipping extendHold');
-      return true;
-    }
+    if (!this._isAvailable()) return true;
     const key = `${REDIS_KEY.BOOKING_HOLD}${carId}:${startDate}:${endDate}`;
     const currentHolder = await this.redis.get(key);
     if (currentHolder && currentHolder === bookingId.toString()) {
@@ -38,14 +25,8 @@ class RedisLockService {
     return false;
   }
 
-  /**
-   * Release hold lock
-   */
   async releaseHold(carId, startDate, endDate, bookingId) {
-    if (!isRedisAvailable()) {
-      console.warn('[RedisLock] Redis not available, skipping releaseHold');
-      return true;
-    }
+    if (!this._isAvailable()) return true;
     const key = `${REDIS_KEY.BOOKING_HOLD}${carId}:${startDate}:${endDate}`;
     const currentHolder = await this.redis.get(key);
     if (currentHolder && currentHolder === bookingId.toString()) {
@@ -55,24 +36,18 @@ class RedisLockService {
     return false;
   }
 
-  /**
-   * Check if a hold exists for a car date range
-   */
   async checkHold(carId, startDate, endDate) {
-    if (!isRedisAvailable()) return null;
+    if (!this._isAvailable()) return null;
     const key = `${REDIS_KEY.BOOKING_HOLD}${carId}:${startDate}:${endDate}`;
     const holder = await this.redis.get(key);
     return holder ? parseInt(holder, 10) : null;
   }
 
-  /**
-   * Get TTL of a hold
-   */
   async getHoldTTL(carId, startDate, endDate) {
-    if (!isRedisAvailable()) return -1;
+    if (!this._isAvailable()) return -1;
     const key = `${REDIS_KEY.BOOKING_HOLD}${carId}:${startDate}:${endDate}`;
     return this.redis.ttl(key);
   }
 }
 
-module.exports = new RedisLockService();
+export default new RedisLockService();

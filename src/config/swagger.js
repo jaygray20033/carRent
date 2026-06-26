@@ -11,7 +11,7 @@ const options = {
       description: 'Hệ thống cho thuê xe ô tô - API Documentation',
       contact: { name: 'OtoRent Team', email: 'contact@otorent.vn' },
     },
-    servers: [{ url: `${env.appUrl}${env.apiPrefix}`, description: 'Development' }],
+    servers: [{ url: `${env.APP_URL}${env.API_PREFIX}`, description: 'Development' }],
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -22,7 +22,7 @@ const options = {
       },
     },
   },
-  apis: ['./src/routes/*.js', './src/docs/*.js'],
+  apis: ['./src/api/v1/**/*.routes.js'],
 };
 
 const swaggerSpec = swaggerJSDoc(options);

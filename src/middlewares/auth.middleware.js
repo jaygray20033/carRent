@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────────
 import jwt from 'jsonwebtoken';
 import env from '../config/env.js';
-import prisma from '../config/prisma.js';
+import prisma from '../config/db.js';
 
 /**
  * Middleware to verify JWT access token.
@@ -31,6 +31,7 @@ export async function authenticate(req, res, next) {
         phone: true,
         roleId: true,
         status: true,
+        role: { select: { code: true, name: true } },
       },
     });
 

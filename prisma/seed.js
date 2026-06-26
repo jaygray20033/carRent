@@ -1,4 +1,4 @@
-// prisma/seed.js — Day 6 seed (SQLite)
+// prisma/seed.js — OtoRent seed data (MySQL)
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';

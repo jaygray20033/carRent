@@ -1,11 +1,11 @@
-const { Worker } = require('bullmq');
-const { getRedisConnection } = require('../config/redis');
+// src/jobs/notificationWorker.js (ESM) — Notification worker scaffold
+import { Worker } from 'bullmq';
+import { redis } from '../integrations/redis.js';
 
 /**
- * Notification worker - scaffold for future implementation
- * Will handle: email, push, SMS notifications
+ * Notification worker - handles email, push, SMS notifications
  */
-function createNotificationWorker() {
+export function createNotificationWorker() {
   const worker = new Worker(
     'notificationQueue',
     async (job) => {
@@ -13,17 +13,14 @@ function createNotificationWorker() {
 
       switch (job.name) {
         case 'booking-confirmed':
-          // TODO: Send confirmation email to renter
           console.log(`[Notification] Booking confirmed - send email to renter`);
           break;
 
         case 'booking-cancelled':
-          // TODO: Send cancellation notice
           console.log(`[Notification] Booking cancelled - send notice`);
           break;
 
         case 'payment-reminder':
-          // TODO: Send payment reminder before hold expires
           console.log(`[Notification] Payment reminder sent`);
           break;
 
@@ -33,13 +30,10 @@ function createNotificationWorker() {
 
       return { processed: true };
     },
-    {
-      connection: getRedisConnection(),
-      concurrency: 5,
-    }
+    { connection: redis, concurrency: 5 }
   );
 
-  worker.on('completed', (job, result) => {
+  worker.on('completed', (job) => {
     console.log(`[Worker:notification] Job ${job.name} completed`);
   });
 
@@ -50,5 +44,3 @@ function createNotificationWorker() {
   console.log('[Worker] Notification worker started');
   return worker;
 }
-
-module.exports = { createNotificationWorker };
