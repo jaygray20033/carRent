@@ -24,6 +24,10 @@ const env = {
 
   // Bcrypt
   BCRYPT_SALT_ROUNDS: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12,
+
+  // OTP
+  OTP_LENGTH: parseInt(process.env.OTP_LENGTH, 10) || 6,
+  OTP_TTL_SECONDS: parseInt(process.env.OTP_TTL_SECONDS, 10) || 300,
 };
 
 // Named helper exports (used by config/db.js and other modules)

@@ -18,22 +18,186 @@ const router = Router();
 // All booking routes require authentication.
 router.use(authenticate);
 
-// POST /api/v1/bookings/draft — create a DRAFT booking (UC-14)
+/**
+ * @swagger
+ * tags:
+ *   name: Bookings
+ *   description: Booking draft + hold flow (UC-14/15/16)
+ *
+ * components:
+ *   schemas:
+ *     BookingDraftInput:
+ *       type: object
+ *       required: [vehicleId, pickup_at, return_at, pickup_point, dropoff_point]
+ *       properties:
+ *         vehicleId: { type: integer, example: 1 }
+ *         pickup_at: { type: string, format: date-time, description: "ISO datetime, must be ≥ 2h from now" }
+ *         return_at: { type: string, format: date-time, description: "ISO datetime, must be after pickup_at" }
+ *         pickup_point: { type: string, example: "OtoRent HQ - Quận 2" }
+ *         dropoff_point: { type: string, example: "Sân bay Tân Sơn Nhất" }
+ *         rental_type: { type: string, enum: [SELF_DRIVE, WITH_DRIVER], default: SELF_DRIVE }
+ *         premium_insurance: { type: boolean, default: false, description: "Apply the active PREMIUM insurance plan" }
+ *     Booking:
+ *       type: object
+ *       properties:
+ *         id: { type: integer }
+ *         bookingCode: { type: string, example: "OTR-20260626-AB3K9" }
+ *         status: { type: string, enum: [DRAFT, PENDING_PAYMENT, CONFIRMED, IN_USE, COMPLETED, CANCELLED, REFUNDED] }
+ *         totalDays: { type: integer }
+ *         pricePerDay: { type: number }
+ *         subtotal: { type: number }
+ *         insuranceFee: { type: number }
+ *         couponDiscount: { type: number }
+ *         totalAmount: { type: number }
+ *         holdTtl: { type: integer, description: "Remaining Redis hold seconds (-1 if no Redis)" }
+ */
+
+/**
+ * @swagger
+ * /bookings/draft:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: Create a DRAFT booking with a 15-min hold (UC-14)
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/BookingDraftInput' }
+ *     responses:
+ *       201: { description: Draft created }
+ *       401: { description: Authentication required }
+ *       404: { description: Vehicle not found }
+ *       409: { description: "Vehicle unavailable / held / overlapping (codes BOOKING_OVERLAP, CAR_HELD, CAR_NOT_AVAILABLE)" }
+ *       422: { description: Validation failed }
+ */
 router.post('/draft', createDraft);
 
-// GET /api/v1/bookings — list current user's bookings
+/**
+ * @swagger
+ * /bookings:
+ *   get:
+ *     tags: [Bookings]
+ *     summary: List the current user's bookings
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [DRAFT, PENDING_PAYMENT, CONFIRMED, IN_USE, COMPLETED, CANCELLED, REFUNDED] }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 12 }
+ *     responses:
+ *       200: { description: Paginated bookings of the current user }
+ *       401: { description: Authentication required }
+ */
 router.get('/', listMyBookings);
 
-// GET /api/v1/bookings/:id — booking detail (owner / ADMIN / OPERATOR)
+/**
+ * @swagger
+ * /bookings/{id}:
+ *   get:
+ *     tags: [Bookings]
+ *     summary: Get booking detail (owner / ADMIN / OPERATOR)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Booking detail with history + breakdown }
+ *       403: { description: Not your booking }
+ *       404: { description: Booking not found }
+ */
 router.get('/:id', getBookingDetail);
 
-// PATCH /api/v1/bookings/:id — update a DRAFT (insurance, dropoff) (UC-15)
+/**
+ * @swagger
+ * /bookings/{id}:
+ *   patch:
+ *     tags: [Bookings]
+ *     summary: Update a DRAFT — insurance plan / dropoff — and recompute price (UC-15)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               insurancePlanId: { type: integer, nullable: true, description: "null clears the plan" }
+ *               dropoffPoint: { type: string }
+ *     responses:
+ *       200: { description: Draft updated with recomputed pricing }
+ *       400: { description: Booking is not in DRAFT status (NOT_DRAFT) }
+ *       403: { description: Not your booking }
+ *       404: { description: Booking or insurance plan not found }
+ *       422: { description: Validation failed }
+ */
 router.patch('/:id', updateDraft);
 
-// POST /api/v1/bookings/:id/confirm — DRAFT → PENDING_PAYMENT (UC-16)
+/**
+ * @swagger
+ * /bookings/{id}/confirm:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: Confirm a DRAFT → PENDING_PAYMENT, optionally apply a coupon (UC-16)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               coupon_code: { type: string, example: "WELCOME50K" }
+ *     responses:
+ *       200: { description: Booking confirmed, awaiting payment }
+ *       400: { description: Booking is not in DRAFT status (NOT_DRAFT) }
+ *       403: { description: Not your booking }
+ *       404: { description: Booking not found }
+ *       422: { description: "Coupon invalid (COUPON_INVALID)" }
+ */
 router.post('/:id/confirm', confirmBooking);
 
-// POST /api/v1/bookings/:id/cancel — cancel a booking
+/**
+ * @swagger
+ * /bookings/{id}/cancel:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: Cancel a booking (DRAFT / PENDING_PAYMENT / CONFIRMED)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason: { type: string }
+ *     responses:
+ *       200: { description: Booking cancelled }
+ *       400: { description: Cannot cancel in current status (CANNOT_CANCEL) }
+ *       403: { description: Not your booking }
+ *       404: { description: Booking not found }
+ */
 router.post('/:id/cancel', cancelBooking);
 
 export default router;

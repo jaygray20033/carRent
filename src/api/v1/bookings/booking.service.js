@@ -64,7 +64,7 @@ const assertNoOverlap = async (vehicleId, pickupAt, returnAt, excludeBookingId =
       AND: [{ pickupAt: { lt: new Date(returnAt) } }, { returnAt: { gt: new Date(pickupAt) } }],
     },
   });
-  if (overlap) throw new ConflictError('Vehicle is booked for that period', 'CAR_BOOKED');
+  if (overlap) throw new ConflictError('Vehicle is booked for that period', 'BOOKING_OVERLAP');
 };
 
 export const bookingService = {
