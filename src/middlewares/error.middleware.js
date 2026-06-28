@@ -4,7 +4,6 @@ import { AppError } from '../utils/apiError.js';
 import { fail } from '../utils/apiResponse.js';
 import { isProd } from '../config/env.js';
 
-// eslint-disable-next-line no-unused-vars
 export const errorHandler = (err, req, res, _next) => {
   if (err instanceof AppError) {
     return fail(res, err.message, err.statusCode, err.code, err.details);

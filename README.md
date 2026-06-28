@@ -3,6 +3,7 @@
 Backend API cho hệ thống cho thuê xe ô tô (self-drive & with-driver) — phiên bản init.
 
 ## 🧱 Tech Stack
+
 - **Runtime**: Node.js 20+
 - **Framework**: Express.js 4
 - **ORM**: Prisma 5
@@ -65,6 +66,7 @@ Base API URL: `http://localhost:4000/api/v1`
 ## 🔑 Core Endpoints (đã code)
 
 ### Auth
+
 - `POST /api/v1/auth/register` — Đăng ký
 - `POST /api/v1/auth/login` — Đăng nhập (trả access + refresh token)
 - `POST /api/v1/auth/refresh-token` — Lấy access token mới
@@ -72,10 +74,12 @@ Base API URL: `http://localhost:4000/api/v1`
 - `POST /api/v1/auth/verify-otp` — Xác thực OTP (stub)
 
 ### User
+
 - `GET /api/v1/users/me` — Profile hiện tại (auth)
 - `PUT /api/v1/users/me` — Cập nhật profile (auth)
 
 ### Cars
+
 - `GET /api/v1/cars` — Danh sách + filter (brand, category, priceMin, priceMax, transmission, fuel)
 - `GET /api/v1/cars/:id` — Chi tiết xe
 - `POST /api/v1/cars` — Tạo xe (admin)
@@ -83,16 +87,19 @@ Base API URL: `http://localhost:4000/api/v1`
 - `DELETE /api/v1/cars/:id` — Xóa xe (admin)
 
 ### Bookings
+
 - `POST /api/v1/bookings` — Tạo đơn đặt xe (auth)
 - `GET /api/v1/bookings` — Lịch sử đơn của user (auth)
 - `GET /api/v1/bookings/:id` — Chi tiết đơn (auth)
 - `PATCH /api/v1/bookings/:id/cancel` — Huỷ đơn (auth)
 
 ### Payments
+
 - `POST /api/v1/payments/checkout` — Tạo phiên thanh toán (auth)
 - `GET /api/v1/payments/:id` — Trạng thái thanh toán (auth)
 
 ### Stations
+
 - `GET /api/v1/stations` — Danh sách điểm nhận/trả xe
 
 ## 📦 Response format
@@ -104,7 +111,130 @@ Base API URL: `http://localhost:4000/api/v1`
 { "success": false, "message": "...", "code": "...", "errors": [...] }
 ```
 
+## 🔐 Day 3 — Auth module (UC-01 / UC-02 / UC-03)
+
+Hệ thống xác thực hoàn chỉnh: đăng ký + OTP, đăng nhập + khóa chống brute-force, xoay token.
+
+### Endpoints (`/api/v1/auth`)
+
+| Method | Path             | Mô tả                                                                                                | Lỗi tiêu biểu                                                                        |
+| ------ | ---------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| POST   | `/register`      | Tạo user **PENDING** + **Wallet**, sinh OTP 6 số (hash bcrypt → Redis TTL 5'), log OTP ra console    | `409 PHONE_EXISTS` / `EMAIL_EXISTS`, `422 VALIDATION`                                |
+| POST   | `/login`         | Trả access (15m) + refresh (7d) + profile. Lưu RefreshToken DB + Redis whitelist `rt:{userId}:{jti}` | `401 INVALID_CREDENTIALS`, `403 ACCOUNT_LOCKED` / `ACCOUNT_PENDING` / `LOGIN_LOCKED` |
+| POST   | `/verify-otp`    | bcrypt.compare OTP, attempts < 5 → ACTIVE; sai 5 lần khóa 30'                                        | `422 OTP_INVALID`, `410 OTP_EXPIRED`, `403 OTP_LOCKED`                               |
+| POST   | `/resend-otp`    | Gửi lại OTP, rate limit 60s/lần                                                                      | `429 OTP_RESEND_COOLDOWN`                                                            |
+| POST   | `/refresh-token` | Xoay token, kiểm tra Redis whitelist, revoke jti cũ                                                  | `401 INVALID_REFRESH` / `REFRESH_REVOKED`                                            |
+| POST   | `/logout`        | Thu hồi refresh token khỏi whitelist                                                                 | —                                                                                    |
+| GET    | `/me`            | User hiện tại (Bearer access token)                                                                  | `401 UNAUTHORIZED`                                                                   |
+
+### Quy tắc bảo mật
+
+- Mật khẩu: bcrypt cost **12**. Password yêu cầu ≥ 8 ký tự, có **chữ + số**.
+- OTP: lưu **hash bcrypt** trong Redis (không lưu plaintext); key `otp:{PURPOSE}:{identifier}` TTL 300s.
+- Chống brute-force login: `login_fail:{identifier}` TTL 15', ≥ 5 → khóa 15' (`login_lock:{identifier}`).
+- Chống brute-force OTP: ≥ 5 sai → khóa 30' (`otp_lock:{identifier}`).
+- Refresh token whitelist Redis + lưu hash trong bảng `refresh_tokens`.
+
+### Redis keys
+
+```
+otp:REGISTER:{phone}      -> { codeHash, attempts }  (TTL 5')
+otp_resend:{identifier}   -> 1                        (TTL 60s)
+otp_lock:{identifier}     -> 1                        (TTL 30')
+login_fail:{identifier}   -> count                    (TTL 15')
+login_lock:{identifier}   -> 1                        (TTL 15')
+rt:{userId}:{jti}         -> 1                         (TTL 7d)
+```
+
+### Files
+
+```
+src/api/v1/auth/auth.validator.js   # zod: register/login/verifyOtp/resendOtp
+src/api/v1/auth/auth.service.js     # business logic (register/login/verifyOtp/resendOtp/refresh/logout)
+src/api/v1/auth/auth.controller.js  # 7 handlers (asyncHandler)
+src/api/v1/auth/auth.routes.js      # routes + validate.middleware
+src/integrations/redis.js           # ioredis singleton (REDIS_URL)
+src/integrations/sms.js             # enqueueSendOtp() — log OTP ra console (DEV)
+src/utils/otp.js                    # generateOtp / hashOtp / compareOtp
+src/utils/jwt.js                    # signAccess/signRefresh(jti)/verify/durationToSeconds
+src/utils/password.js               # hash/compare bcrypt
+src/middlewares/auth.middleware.js  # parse Bearer -> req.user
+```
+
+### Test thủ công (happy path)
+
+```bash
+# 1) Register -> user PENDING, OTP in ra console server
+curl -X POST localhost:4000/api/v1/auth/register -H 'Content-Type: application/json' \
+  -d '{"fullName":"Nguyen Van A","phone":"0912345678","email":"a@otorent.vn","password":"Passw0rd"}'
+# 2) Lấy OTP từ console -> verify
+curl -X POST localhost:4000/api/v1/auth/verify-otp -H 'Content-Type: application/json' \
+  -d '{"identifier":"0912345678","code":"<OTP>","purpose":"REGISTER"}'
+# 3) Login -> token
+curl -X POST localhost:4000/api/v1/auth/login -H 'Content-Type: application/json' \
+  -d '{"identifier":"0912345678","password":"Passw0rd"}'
+```
+
+Postman collection: `../OtoRent.postman_collection.json` (folder **Auth**, 7 request).
+
+### Yêu cầu hạ tầng khi chạy
+
+- **MySQL/MariaDB** (DATABASE_URL) — đã `prisma migrate deploy` + `prisma:seed` (tạo role CUSTOMER).
+- **Redis** (REDIS_URL) — bắt buộc cho OTP, login lock, refresh whitelist.
+
+## 🧪 Day 5 — CI/CD, Husky & Swagger
+
+### 1. Swagger / OpenAPI
+
+- **Packages**: `swagger-jsdoc` + `swagger-ui-express`.
+- **Config**: `src/config/swagger.js` (info, server, `securityScheme: bearerAuth`).
+- **Swagger UI**: `GET /api/v1/docs` → http://localhost:4000/api/v1/docs
+- **OpenAPI JSON**: `GET /api/v1/docs.json`
+- 4 endpoint Auth đã được annotate JSDoc `@swagger`: `register`, `login`, `verify-otp`, `resend-otp`.
+
+### 2. Test (Jest)
+
+- `tests/auth.test.js` — happy path **register + verify-otp + login** (UC-01/02/03) + 2 ca lỗi.
+- `tests/__mocks__/ioredis.js` — Redis in-memory giả lập (test không cần Redis server).
+- `tests/setup.js` — set env mặc định cho môi trường test.
+- Chạy local:
+  ```bash
+  # cần MySQL/MariaDB; Redis được mock nên không bắt buộc
+  export DATABASE_URL="mysql://carrent:carrent@127.0.0.1:3306/car_rent_test"
+  npx prisma db push          # tạo schema cho DB test
+  npm test                    # 6/6 pass
+  ```
+
+### 3. Lint & Format
+
+- `eslint.config.js` (ESLint v9 flat config, Node ESM + Jest).
+- `.prettierrc.json`, `.prettierignore`, `.editorconfig`.
+- Scripts: `npm run lint`, `npm run lint:fix`, `npm run format`, `npm run format:check`.
+
+### 4. Husky + lint-staged (pre-commit)
+
+- `.husky/pre-commit` → chạy `npx lint-staged`.
+- `lint-staged` config trong `package.json`: ESLint `--fix` + Prettier `--write` trên file thay đổi.
+- Cài hook tự động qua script `prepare` (`husky`) khi `npm install`.
+
+### 5. GitHub Actions CI
+
+- File: `.github/workflows/ci.yml`.
+- **Trigger**: mọi Pull Request + push lên `main`.
+- **Job `lint-test-be`**: Node 20 → `npm ci` → `npm run lint` → `npx prisma generate` → `prisma db push` (MySQL 8 service container) → `npm run test:ci`.
+- > ℹ️ FE có CI riêng trong repo `carRent-fe` (`.github/workflows/ci.yml`, job `lint-test-fe`) vì BE/FE là **2 repo Git tách biệt**.
+
+### 6. Bảo vệ branch `main` (cấu hình trên GitHub, không nằm trong code)
+
+> GitHub → **Settings → Branches → Add branch protection rule**
+>
+> - Branch name pattern: `main`
+> - ✅ Require a pull request before merging
+> - ✅ Require status checks to pass before merging → chọn check **`Lint & Test (Backend)`**
+> - (tuỳ chọn) ✅ Require branches to be up to date before merging
+
 ## 🛣️ Roadmap (chưa code)
+
 - Wallet & wallet transactions
 - Reviews & ratings
 - Blog / CMS

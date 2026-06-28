@@ -1,6 +1,6 @@
 // src/config/logger.js
 import winston from 'winston';
-import { env, isProd } from './env.js';
+import { isProd } from './env.js';
 
 const { combine, timestamp, printf, colorize, errors } = winston.format;
 
