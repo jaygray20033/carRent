@@ -9,6 +9,7 @@ const env = {
   APP_URL: process.env.APP_URL || 'http://localhost:4000',
   API_PREFIX: process.env.API_PREFIX || '/api/v1',
   CORS_ORIGIN: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
 
   // Database
   DATABASE_URL: process.env.DATABASE_URL,

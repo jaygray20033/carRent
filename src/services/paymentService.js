@@ -1,6 +1,6 @@
 // src/services/paymentService.js
 //
-// Central payment service (Day 16 skeleton).
+// Central payment service.
 //
 //   createCheckout({ booking | wallet }, method)
 //     → create a PENDING Payment row, generate a unique txn_ref (UUID),
@@ -8,16 +8,32 @@
 //
 //   handleWebhook(provider, payload)
 //     → adapter verifies the signature → update Payment status →
-//       run the business callback (confirm booking / credit wallet).
-//
-// The real signature verification + VNPay redirect land in Day 17; here the
-// VNPay adapter returns a mock URL and handleWebhook trusts a verified payload.
+//       run the business callback (confirm booking / credit wallet),
+//       release the Redis hold and enqueue a confirmation notification.
 import { randomUUID } from 'node:crypto';
 import prisma from '../config/db.js';
 import logger from '../config/logger.js';
 import { getAdapter } from '../integrations/payments/index.js';
 import { walletService } from '../api/v1/wallet/wallet.service.js';
+import RedisLockService from './RedisLockService.js';
+import { BOOKING_STATUS } from '../config/constants.js';
 import { NotFoundError, AppError } from '../utils/apiError.js';
+
+const toIso = (d) => new Date(d).toISOString();
+
+/**
+ * Enqueue a notification job. The BullMQ queue is imported lazily so this
+ * module doesn't pull in bullmq at load time (keeps unit tests light and lets
+ * the enqueue degrade gracefully if the queue/Redis is unavailable).
+ */
+async function enqueueNotification(name, data) {
+  try {
+    const { notificationQueue } = await import('../jobs/queue.js');
+    await notificationQueue.add(name, data);
+  } catch (err) {
+    logger.warn(`Failed to enqueue ${name}: ${err.message}`);
+  }
+}
 
 export const paymentService = {
   /**
@@ -117,8 +133,8 @@ export const paymentService = {
       if (!payment.bookingId) {
         throw new AppError('Booking payment has no booking attached', 500, 'INVALID_PAYMENT');
       }
-      return prisma.$transaction(async (tx) => {
-        const updated = await tx.payment.update({
+      const { booking, updated } = await prisma.$transaction(async (tx) => {
+        const updatedPayment = await tx.payment.update({
           where: { id: payment.id },
           data: {
             status: 'SUCCESS',
@@ -127,12 +143,40 @@ export const paymentService = {
             metadata: mergeRaw(payment.metadata, rawResponse),
           },
         });
-        await tx.booking.update({
+        const current = await tx.booking.findUnique({ where: { id: payment.bookingId } });
+        const updatedBooking = await tx.booking.update({
           where: { id: payment.bookingId },
-          data: { status: 'CONFIRMED' },
+          data: {
+            status: BOOKING_STATUS.CONFIRMED,
+            history: {
+              create: {
+                fromStatus: current?.status ?? null,
+                toStatus: BOOKING_STATUS.CONFIRMED,
+                note: `Payment ${payment.method} success`,
+                metadata: JSON.stringify({ paymentId: payment.id, transactionId }),
+              },
+            },
+          },
         });
-        return updated;
+        return { booking: updatedBooking, updated: updatedPayment };
       });
+
+      // Release the Redis hold (best-effort) and notify the renter — outside the
+      // DB transaction so external services can't roll back a confirmed booking.
+      await RedisLockService.releaseHold(
+        booking.vehicleId,
+        toIso(booking.pickupAt),
+        toIso(booking.returnAt),
+        booking.id
+      ).catch(() => {});
+
+      await enqueueNotification('booking-confirmed', {
+        bookingId: Number(booking.id),
+        userId: booking.userId,
+        channels: ['email', 'sms'],
+      });
+
+      return updated;
     }
 
     throw new AppError(`Unknown payment type: ${payment.type}`, 500, 'INVALID_PAYMENT');

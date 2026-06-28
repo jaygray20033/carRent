@@ -15,6 +15,10 @@ import { errorHandler, notFound } from './middlewares/error.middleware.js';
 
 const app = express();
 
+// Trust the first proxy hop so req.ip / x-forwarded-for reflect the real client
+// (needed for VNPay's vnp_IpAddr when running behind nginx/ngrok).
+app.set('trust proxy', 1);
+
 // ── Global middleware ─────────────────────────────────────────────────
 app.use(helmet());
 app.use(cors({

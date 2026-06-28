@@ -5,7 +5,7 @@ import { walletService } from '../wallet/wallet.service.js';
 import { paymentService as checkoutService } from '../../../services/paymentService.js';
 
 export const paymentService = {
-  async checkout(userId, { bookingId, method }) {
+  async checkout(userId, { bookingId, method }, ipAddr) {
     const booking = await prisma.booking.findUnique({ where: { id: Number(bookingId) } });
     if (!booking) throw new NotFoundError('Booking');
     if (booking.userId.toString() !== userId.toString())
@@ -29,11 +29,12 @@ export const paymentService = {
       return { payment, checkoutUrl: null };
     }
 
-    const { payment, payUrl } = await checkoutService.createCheckout(
+    const { payment, payUrl, txnRef } = await checkoutService.createCheckout(
       { booking, amount: booking.totalAmount, userId },
-      method
+      method,
+      ipAddr
     );
-    return { payment, checkoutUrl: payUrl };
+    return { payment, checkoutUrl: payUrl, payUrl, txnRef };
   },
 
   async getById(userId, id) {

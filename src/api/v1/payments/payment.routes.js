@@ -14,6 +14,12 @@ router.post(
   validate(checkoutSchema),
   asyncHandler(paymentController.checkout)
 );
+
+// VNPay callbacks — NO auth (called by the browser redirect / VNPay servers).
+router.get('/vnpay/return', asyncHandler(paymentController.vnpayReturn));
+router.get('/vnpay/ipn', asyncHandler(paymentController.vnpayIpn));
+router.post('/vnpay/ipn', asyncHandler(paymentController.vnpayIpn));
+
 router.get('/:id', authenticate, asyncHandler(paymentController.detail));
 
 // Dev-only: simulate gateway success callback

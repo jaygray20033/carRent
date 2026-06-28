@@ -12,9 +12,14 @@ export function createNotificationWorker() {
       console.log(`[Worker:notification] Processing job: ${job.name}`, job.data);
 
       switch (job.name) {
-        case 'booking-confirmed':
-          console.log(`[Notification] Booking confirmed - send email to renter`);
+        case 'booking-confirmed': {
+          const channels = job.data.channels || ['email'];
+          console.log(
+            `[Notification] Booking #${job.data.bookingId} confirmed — notify user #${job.data.userId} via ${channels.join(', ')}`
+          );
+          // Day 18: send real email (Mailhog/SendGrid) + SMS here.
           break;
+        }
 
         case 'booking-cancelled':
           console.log(`[Notification] Booking cancelled - send notice`);
