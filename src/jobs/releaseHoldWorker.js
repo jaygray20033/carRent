@@ -1,6 +1,6 @@
 // src/jobs/releaseHoldWorker.js (ESM) — Prisma-based release-hold worker
 import { Worker } from 'bullmq';
-import { redis } from '../integrations/redis.js';
+import { bullConnection } from '../integrations/redis.js';
 import prisma from '../config/db.js';
 import { BOOKING_STATUS } from '../config/constants.js';
 import RedisLockService from '../services/RedisLockService.js';
@@ -30,7 +30,7 @@ async function processReleaseHold(job) {
 }
 
 export function createReleaseHoldWorker() {
-  const worker = new Worker('bookingQueue', async (job) => { if (job.name === 'release-hold-job') return processReleaseHold(job); }, { connection: redis, concurrency: 1 });
+  const worker = new Worker('bookingQueue', async (job) => { if (job.name === 'release-hold-job') return processReleaseHold(job); }, { connection: bullConnection, concurrency: 1 });
   worker.on('completed', (job, result) => { if (job.name === 'release-hold-job') console.log('[Worker:release-hold] Done:', result); });
   worker.on('failed', (job, err) => { console.error(`[Worker:bookingQueue] Failed:`, err.message); });
   console.log('[Worker] Release-hold worker started');

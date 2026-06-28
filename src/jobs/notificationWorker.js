@@ -1,6 +1,6 @@
 // src/jobs/notificationWorker.js (ESM) — Notification worker scaffold
 import { Worker } from 'bullmq';
-import { redis } from '../integrations/redis.js';
+import { bullConnection } from '../integrations/redis.js';
 
 /**
  * Notification worker - handles email, push, SMS notifications
@@ -30,7 +30,7 @@ export function createNotificationWorker() {
 
       return { processed: true };
     },
-    { connection: redis, concurrency: 5 }
+    { connection: bullConnection, concurrency: 5 }
   );
 
   worker.on('completed', (job) => {

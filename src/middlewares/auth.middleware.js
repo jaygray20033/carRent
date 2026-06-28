@@ -22,8 +22,11 @@ export async function authenticate(req, res, next) {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET);
 
+    // Access tokens carry the user id in `sub` (string); older callers used `userId`.
+    const userId = decoded.sub ?? decoded.userId;
+
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+      where: { id: Number(userId) },
       select: {
         id: true,
         fullName: true,

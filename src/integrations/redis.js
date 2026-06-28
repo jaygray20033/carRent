@@ -46,4 +46,23 @@ function createClient() {
 export const redis = globalForRedis.__redis || createClient();
 if (env.NODE_ENV !== 'production') globalForRedis.__redis = redis;
 
+/**
+ * Dedicated connection for BullMQ.
+ *
+ * BullMQ uses blocking commands (BRPOPLPUSH etc.) and requires
+ * `maxRetriesPerRequest: null` on its connection — a constraint that does not
+ * suit the shared client used for cache/locks. When REDIS_URL is empty we reuse
+ * the noop stub so workers degrade gracefully.
+ */
+function createBullConnection() {
+  if (!env.REDIS_URL) return redis; // noop stub — workers won't actually run
+  return new Redis(env.REDIS_URL, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+  });
+}
+
+export const bullConnection = globalForRedis.__bullRedis || createBullConnection();
+if (env.NODE_ENV !== 'production') globalForRedis.__bullRedis = bullConnection;
+
 export default redis;

@@ -1,6 +1,6 @@
 // src/jobs/paymentWorker.js (ESM) — Payment worker scaffold
 import { Worker } from 'bullmq';
-import { redis } from '../integrations/redis.js';
+import { bullConnection } from '../integrations/redis.js';
 
 /**
  * Payment worker - handles payment verification, refund processing
@@ -30,7 +30,7 @@ export function createPaymentWorker() {
 
       return { processed: true };
     },
-    { connection: redis, concurrency: 3 }
+    { connection: bullConnection, concurrency: 3 }
   );
 
   worker.on('completed', (job) => {

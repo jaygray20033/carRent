@@ -12,6 +12,7 @@ import categoryRoutes from './categories/category.routes.js';
 import postRoutes from './posts/post.routes.js';
 import insurancePlanRoutes from './insurance-plans/insurancePlan.routes.js';
 import couponRoutes from './coupons/coupon.routes.js';
+import walletRoutes from './wallet/wallet.routes.js';
 import adminRoutes from './admin/index.js';
 
 const router = Router();
@@ -33,6 +34,9 @@ router.get('/', (_req, res) =>
       '/posts',
       '/insurance-plans',
       '/coupons',
+      '/me/wallet',
+      '/me/wallet/transactions',
+      '/me/wallet/topup',
       '/admin/vehicles',
       '/admin/vehicle-models',
     ],
@@ -51,6 +55,7 @@ router.use('/categories', categoryRoutes);
 router.use('/posts', postRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coupons', couponRoutes);
+router.use('/me/wallet', walletRoutes);
 router.use('/admin', adminRoutes);
 
 export default router;

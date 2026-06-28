@@ -16,7 +16,7 @@ const slugify = (s) =>
     .replace(/(^-|-$)/g, '');
 
 async function main() {
-  console.log('🌱 Seeding database (SQLite)...');
+  console.log('🌱 Seeding database (MySQL)...');
 
   // 1) Roles
   const roles = [

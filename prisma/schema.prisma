@@ -45,11 +45,13 @@ model User {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  role          Role           @relation(fields: [roleId], references: [id])
-  bookings      Booking[]
-  wallet        Wallet?
-  posts         Post[]
-  refreshTokens RefreshToken[]
+  role               Role                @relation(fields: [roleId], references: [id])
+  bookings           Booking[]
+  wallet             Wallet?
+  walletTransactions WalletTransaction[]
+  payments           Payment[]
+  posts              Post[]
+  refreshTokens      RefreshToken[]
 
   @@map("users")
 }
@@ -303,18 +305,23 @@ model BookingHistory {
 // ─── Payments ───────────────────────────────────────────────────────
 model Payment {
   id            Int       @id @default(autoincrement())
-  bookingId     Int       @map("booking_id")
+  bookingId     Int?      @map("booking_id")
+  userId        Int?      @map("user_id")
+  type          String    @default("BOOKING") // BOOKING, TOPUP
   method        String    // VNPAY, MOMO, ZALOPAY, WALLET, BANK_TRANSFER, CASH
   amount        Float
   status        String    @default("PENDING") // PENDING, SUCCESS, FAILED, REFUNDED
+  txnRef        String?   @unique @map("txn_ref") // UUID handed to the provider; basis for webhook idempotency
   transactionId String?   @map("transaction_id")
   paidAt        DateTime? @map("paid_at")
   metadata      String?   @db.Text
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  booking Booking @relation(fields: [bookingId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
 
+  @@index([userId])
   @@map("payments")
 }
 
@@ -359,9 +366,35 @@ model Wallet {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
 
   @@map("wallets")
+}
+
+// ─── Wallet Transactions (Day 16 — UC-44, UC-45, UC-46) ─────────────
+model WalletTransaction {
+  id            Int      @id @default(autoincrement())
+  walletId      Int      @map("wallet_id")
+  userId        Int      @map("user_id")
+  type          String   // TOPUP, PAYMENT, REFUND, WITHDRAW
+  amount        Float    // dương = cộng tiền, âm = trừ tiền
+  balanceBefore Float    @map("balance_before")
+  balanceAfter  Float    @map("balance_after")
+  status        String   @default("SUCCESS") // PENDING, SUCCESS, FAILED
+  referenceType String?  @map("reference_type") // PAYMENT, BOOKING, ...
+  referenceId   Int?     @map("reference_id")
+  description   String?  @db.Text
+  metadata      String?  @db.Text
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  wallet Wallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([userId])
+  @@index([type])
+  @@map("wallet_transactions")
 }
 
 // ─── Site Settings ──────────────────────────────────────────────────

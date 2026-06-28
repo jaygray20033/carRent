@@ -28,6 +28,13 @@ const env = {
   // OTP
   OTP_LENGTH: parseInt(process.env.OTP_LENGTH, 10) || 6,
   OTP_TTL_SECONDS: parseInt(process.env.OTP_TTL_SECONDS, 10) || 300,
+
+  // Payments — VNPay (sandbox, fully wired in Day 17)
+  VNPAY_TMN_CODE: process.env.VNPAY_TMN_CODE || '',
+  VNPAY_HASH_SECRET: process.env.VNPAY_HASH_SECRET || '',
+  VNPAY_URL: process.env.VNPAY_URL || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
+  VNPAY_RETURN_URL: process.env.VNPAY_RETURN_URL || '',
+  VNPAY_IPN_URL: process.env.VNPAY_IPN_URL || '',
 };
 
 // Named helper exports (used by config/db.js and other modules)
