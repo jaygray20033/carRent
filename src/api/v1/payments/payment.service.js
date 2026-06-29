@@ -13,6 +13,12 @@ export const paymentService = {
     if (booking.status !== 'PENDING_PAYMENT')
       throw new AppError('Booking is not pending payment', 400, 'INVALID_STATUS');
 
+    // Wallet pays in-process: atomic deduction, no redirect (UC-19, Day 18).
+    if (method === 'WALLET') {
+      const { payment, booking: confirmed } = await checkoutService.payWithWallet(booking, userId);
+      return { payment, checkoutUrl: null, booking: confirmed };
+    }
+
     // Methods without an online redirect (manual/in-person settlement) just get
     // a PENDING payment row; online providers go through the shared checkout.
     if (method === 'BANK_TRANSFER' || method === 'CASH') {

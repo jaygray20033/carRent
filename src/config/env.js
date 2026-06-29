@@ -36,6 +36,22 @@ const env = {
   VNPAY_URL: process.env.VNPAY_URL || 'https://sandbox.vnpayment.vn/paymentv2/vpcpay.html',
   VNPAY_RETURN_URL: process.env.VNPAY_RETURN_URL || '',
   VNPAY_IPN_URL: process.env.VNPAY_IPN_URL || '',
+
+  // Email — SMTP. When MAIL_HOST is empty the email integration logs to console
+  // instead of sending (keeps dev/CI working without a mail server).
+  MAIL_HOST: process.env.MAIL_HOST || '',
+  MAIL_PORT: parseInt(process.env.MAIL_PORT, 10) || 587,
+  MAIL_SECURE: process.env.MAIL_SECURE === 'true',
+  MAIL_USER: process.env.MAIL_USER || '',
+  MAIL_PASS: process.env.MAIL_PASS || '',
+  MAIL_FROM_NAME: process.env.MAIL_FROM_NAME || 'OtoRent',
+  MAIL_FROM: process.env.MAIL_FROM || 'no-reply@otorent.vn',
+
+  // SMS — 'mock' logs to console (dev); 'twilio' sends via Twilio.
+  SMS_PROVIDER: process.env.SMS_PROVIDER || 'mock',
+  TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
+  TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
+  TWILIO_FROM: process.env.TWILIO_FROM || '',
 };
 
 // Named helper exports (used by config/db.js and other modules)

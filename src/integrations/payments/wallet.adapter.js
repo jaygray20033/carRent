@@ -2,8 +2,9 @@
 // Internal wallet adapter — paying with the user's own wallet balance.
 //
 // Unlike external providers, there is no redirect: settlement is synchronous
-// inside a DB transaction (balance check → deduct → mark Payment SUCCESS).
-// Day 16: skeleton — the atomic deduction lands in Day 18 (UC-19).
+// inside a DB transaction. The actual atomic deduction lives in
+// paymentService.payWithWallet() (UC-19); this adapter only satisfies the
+// provider-registry interface so WALLET resolves like any other method.
 import { AppError } from '../../utils/apiError.js';
 
 export const walletAdapter = {

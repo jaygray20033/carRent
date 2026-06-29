@@ -86,6 +86,100 @@ export const paymentService = {
   },
 
   /**
+   * Pay for a booking using the user's internal wallet balance (UC-19).
+   * Settles synchronously in a single atomic transaction:
+   *   balance check → deduct wallet → WalletTransaction (PAYMENT) →
+   *   Payment SUCCESS → Booking CONFIRMED + history.
+   * Then (outside the tx) releases the Redis hold and enqueues a notification.
+   *
+   * @param {Object} booking - the PENDING_PAYMENT booking to settle
+   * @param {number} userId  - paying user (must own both booking and wallet)
+   * @returns {Promise<{payment: Object, booking: Object}>}
+   */
+  async payWithWallet(booking, userId) {
+    const amount = booking.totalAmount;
+
+    const { payment, updatedBooking } = await prisma.$transaction(async (tx) => {
+      const wallet = await tx.wallet.findUnique({ where: { userId: Number(userId) } });
+      const balanceBefore = wallet?.balance ?? 0;
+      if (!wallet || balanceBefore < amount) {
+        throw new AppError(
+          'Số dư ví không đủ để thanh toán đơn hàng này',
+          422,
+          'INSUFFICIENT_BALANCE'
+        );
+      }
+      const balanceAfter = balanceBefore - amount;
+
+      const createdPayment = await tx.payment.create({
+        data: {
+          bookingId: Number(booking.id),
+          userId: Number(userId),
+          type: 'BOOKING',
+          method: 'WALLET',
+          amount,
+          status: 'SUCCESS',
+          txnRef: randomUUID(),
+          transactionId: `WALLET-${Date.now()}`,
+          paidAt: new Date(),
+          metadata: JSON.stringify({ purpose: 'BOOKING_PAYMENT', bookingId: Number(booking.id) }),
+        },
+      });
+
+      await tx.wallet.update({ where: { id: wallet.id }, data: { balance: balanceAfter } });
+
+      await tx.walletTransaction.create({
+        data: {
+          walletId: wallet.id,
+          userId: Number(userId),
+          type: 'PAYMENT',
+          amount: -amount, // negative = debit
+          balanceBefore,
+          balanceAfter,
+          status: 'SUCCESS',
+          referenceType: 'BOOKING',
+          referenceId: Number(booking.id),
+          description: `Thanh toán đơn ${booking.bookingCode}`,
+        },
+      });
+
+      const confirmed = await tx.booking.update({
+        where: { id: Number(booking.id) },
+        data: {
+          status: BOOKING_STATUS.CONFIRMED,
+          history: {
+            create: {
+              fromStatus: booking.status,
+              toStatus: BOOKING_STATUS.CONFIRMED,
+              changedBy: Number(userId),
+              note: 'Payment WALLET success',
+              metadata: JSON.stringify({ paymentId: createdPayment.id }),
+            },
+          },
+        },
+      });
+
+      return { payment: createdPayment, updatedBooking: confirmed };
+    });
+
+    // Best-effort side effects outside the transaction.
+    await RedisLockService.releaseHold(
+      updatedBooking.vehicleId,
+      toIso(updatedBooking.pickupAt),
+      toIso(updatedBooking.returnAt),
+      updatedBooking.id
+    ).catch(() => {});
+
+    await enqueueNotification('booking-confirmed', {
+      bookingId: Number(updatedBooking.id),
+      userId: updatedBooking.userId,
+      channels: ['email', 'sms'],
+    });
+
+    return { payment, booking: updatedBooking };
+  },
+
+  /**
    * Handle a provider webhook / callback.
    * The adapter verifies the signature and returns a normalised result; on a
    * successful payment we run the matching business callback. Idempotent: a

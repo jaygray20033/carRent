@@ -1,0 +1,29 @@
+<h1 style="font-size:24px;font-weight:700;margin:0 0 8px;color:#0A0F1F;">Đặt xe thành công 🎉</h1>
+<p style="font-size:15px;line-height:1.6;color:#5B6478;margin:0 0 24px;">
+  Xin chào {{fullName}}, đơn đặt xe của bạn đã được xác nhận. Dưới đây là chi tiết chuyến đi.
+</p>
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E8EF;border-radius:12px;overflow:hidden;margin-bottom:24px;">
+  <tr>
+    <td style="padding:14px 18px;background:#F5F7FB;font-size:13px;color:#9AA3B5;">Mã đơn</td>
+    <td style="padding:14px 18px;background:#F5F7FB;font-size:15px;font-weight:600;text-align:right;">{{bookingCode}}</td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px;font-size:13px;color:#9AA3B5;">Xe thuê</td>
+    <td style="padding:14px 18px;font-size:15px;text-align:right;">{{vehicleName}}</td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px;background:#F5F7FB;font-size:13px;color:#9AA3B5;">Nhận xe</td>
+    <td style="padding:14px 18px;background:#F5F7FB;font-size:15px;text-align:right;">{{pickupAt}}</td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px;font-size:13px;color:#9AA3B5;">Trả xe</td>
+    <td style="padding:14px 18px;font-size:15px;text-align:right;">{{returnAt}}</td>
+  </tr>
+  <tr>
+    <td style="padding:14px 18px;background:#F5F7FB;font-size:13px;color:#9AA3B5;">Tổng thanh toán</td>
+    <td style="padding:14px 18px;background:#F5F7FB;font-size:18px;font-weight:700;color:#004EDE;text-align:right;">{{totalAmount}} đ</td>
+  </tr>
+</table>
+
+<a href="{{bookingUrl}}" style="display:inline-block;background:#004EDE;color:#ffffff;text-decoration:none;font-size:15px;font-weight:600;padding:12px 28px;border-radius:8px;">Xem chi tiết đơn</a>
