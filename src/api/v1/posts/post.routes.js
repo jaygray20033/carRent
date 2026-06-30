@@ -1,43 +1,16 @@
 // src/api/v1/posts/post.routes.js
+// Blog public read routes (UC-21/22/25/26/27).
+// NOTE: static paths (/featured, /search) MUST be declared before the
+// dynamic /:slug route, otherwise Express matches them as a slug.
 import { Router } from 'express';
-import prisma from '../../../config/db.js';
-import { asyncHandler } from '../../../middlewares/asyncHandler.js';
-import { success } from '../../../utils/apiResponse.js';
-import { parsePagination, paginatedResponse } from '../../../utils/pagination.js';
+import { postController } from './post.controller.js';
 
 const router = Router();
 
-/**
- * GET /posts?page=1&size=3 — list published posts
- */
-router.get(
-  '/',
-  asyncHandler(async (req, res) => {
-    const { page, size, skip } = parsePagination(req.query, 10);
-
-    const where = { status: 'PUBLISHED' };
-
-    const [items, total] = await Promise.all([
-      prisma.post.findMany({
-        where,
-        orderBy: { publishedAt: 'desc' },
-        skip,
-        take: size,
-        select: {
-          id: true,
-          title: true,
-          slug: true,
-          excerpt: true,
-          thumbnailUrl: true,
-          publishedAt: true,
-          viewCount: true,
-        },
-      }),
-      prisma.post.count({ where }),
-    ]);
-
-    return success(res, paginatedResponse(items, total, { page, size }));
-  })
-);
+router.get('/', postController.list);
+router.get('/featured', postController.featured);
+router.get('/search', postController.search);
+router.get('/:id/related', postController.related);
+router.get('/:slug', postController.detail);
 
 export default router;

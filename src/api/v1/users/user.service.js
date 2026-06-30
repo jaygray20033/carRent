@@ -4,14 +4,14 @@ import { NotFoundError } from '../../../utils/apiError.js';
 
 const sanitize = (u) => {
   if (!u) return null;
-  const { passwordHash, ...rest } = u;
-  return { ...rest, id: rest.id.toString() };
+  const { passwordHash: _passwordHash, ...rest } = u;
+  return rest;
 };
 
 export const userService = {
   async getById(id) {
     const user = await prisma.user.findUnique({
-      where: { id: BigInt(id) },
+      where: { id: Number(id) },
       include: { role: true },
     });
     if (!user) throw new NotFoundError('User');
@@ -23,7 +23,7 @@ export const userService = {
     if (data.dateOfBirth) payload.dateOfBirth = new Date(data.dateOfBirth);
 
     const user = await prisma.user.update({
-      where: { id: BigInt(id) },
+      where: { id: Number(id) },
       data: payload,
       include: { role: true },
     });

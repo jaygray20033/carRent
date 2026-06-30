@@ -18,6 +18,8 @@ function createClient() {
       del: async () => 0,
       setex: async () => 'OK',
       incr: async () => 1,
+      getdel: async () => null,
+      scan: async () => ['0', []],
       expire: async () => 1,
       ttl: async () => -1,
       exists: async () => 0,

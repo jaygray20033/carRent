@@ -14,3 +14,10 @@ export async function scheduleReleaseHoldCron() {
   await bookingQueue.add('release-hold-job', { type: 'release-hold-scan' }, { repeat: { every: 60_000 }, jobId: 'release-hold-cron' });
   console.log('[Queue] Scheduled release-hold-job cron (every 1 minute)');
 }
+
+export async function scheduleFlushPostViewsCron() {
+  const existing = await bookingQueue.getRepeatableJobs();
+  for (const job of existing) { if (job.name === 'flush-post-views-job') await bookingQueue.removeRepeatableByKey(job.key); }
+  await bookingQueue.add('flush-post-views-job', { type: 'flush-post-views' }, { repeat: { every: 300_000 }, jobId: 'flush-post-views-cron' });
+  console.log('[Queue] Scheduled flush-post-views-job cron (every 5 minutes)');
+}

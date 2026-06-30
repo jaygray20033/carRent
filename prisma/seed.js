@@ -693,43 +693,138 @@ async function main() {
   }
   console.log('  ✓ Site settings');
 
-  // 9) Demo blog posts (mock magazine)
+  // 9) Demo blog: categories, tags, posts (UC-21/22/25/26/27)
+  const admin = await prisma.user.findUnique({ where: { phone: '0900000001' } });
+
+  const postCategories = [
+    { name: 'Kinh nghiệm thuê xe', slug: 'kinh-nghiem-thue-xe' },
+    { name: 'Đánh giá xe', slug: 'danh-gia-xe' },
+    { name: 'Tin khuyến mãi', slug: 'tin-khuyen-mai' },
+  ];
+  for (const c of postCategories) {
+    await prisma.postCategory.upsert({ where: { slug: c.slug }, update: {}, create: c });
+  }
+  const blogTags = ['Xe sang', 'SUV', 'Sedan', 'Tự lái', 'Mẹo hay', 'So sánh'].map((name) => ({
+    name,
+    slug: slugify(name),
+  }));
+  for (const t of blogTags) {
+    await prisma.tag.upsert({ where: { slug: t.slug }, update: {}, create: t });
+  }
+
+  const catExp = await prisma.postCategory.findUnique({ where: { slug: 'kinh-nghiem-thue-xe' } });
+  const catRev = await prisma.postCategory.findUnique({ where: { slug: 'danh-gia-xe' } });
+  const catPromo = await prisma.postCategory.findUnique({ where: { slug: 'tin-khuyen-mai' } });
+  const tagBySlug = async (s) => prisma.tag.findUnique({ where: { slug: s } });
+
   const posts = [
     {
       title: 'Top 5 Xe Sang Cho Thuê Hot Nhất 2024',
       slug: 'top-5-xe-sang-cho-thue-2024',
       excerpt: 'Khám phá những mẫu xe sang được thuê nhiều nhất tại OtoRent trong năm 2024.',
-      content: 'Nội dung chi tiết bài viết về top 5 xe sang...',
+      content:
+        'Năm 2024 chứng kiến nhu cầu thuê xe sang tăng mạnh. Dẫn đầu là Mercedes C300 với thiết kế AMG thể thao, tiếp đến là BMW X5, Lexus ES 250 và Porsche Cayenne. Bài viết phân tích chi tiết giá thuê, tiện nghi và lý do mỗi mẫu xe được khách hàng ưa chuộng.',
       thumbnailUrl:
         'https://images.unsplash.com/photo-1494976388531-d1058494cdd8?w=600&h=400&fit=crop',
       status: 'PUBLISHED',
+      isFeatured: true,
+      categoryId: catRev.id,
       publishedAt: new Date('2024-12-01'),
+      tagSlugs: ['xe-sang', 'so-sanh'],
     },
     {
       title: 'Hướng dẫn thuê xe tự lái cho người mới',
       slug: 'huong-dan-thue-xe-tu-lai',
       excerpt: 'Mọi thứ bạn cần biết trước khi thuê xe tự lái lần đầu tiên.',
-      content: 'Nội dung chi tiết hướng dẫn thuê xe tự lái...',
+      content:
+        'Thuê xe tự lái lần đầu có thể khiến nhiều người bối rối. Bài viết hướng dẫn từng bước: chuẩn bị giấy tờ (CCCD, bằng lái), kiểm tra xe trước khi nhận, các điều khoản đặt cọc, bảo hiểm và những lưu ý khi trả xe để tránh phát sinh chi phí.',
       thumbnailUrl:
         'https://images.unsplash.com/photo-1449965408869-ebd13bc9e5a8?w=600&h=400&fit=crop',
       status: 'PUBLISHED',
+      isFeatured: true,
+      categoryId: catExp.id,
       publishedAt: new Date('2024-11-15'),
+      tagSlugs: ['tu-lai', 'meo-hay'],
     },
     {
       title: 'So sánh SUV 7 chỗ: Fortuner vs Santa Fe vs Explorer',
       slug: 'so-sanh-suv-7-cho',
       excerpt: 'Phân tích chi tiết ba mẫu SUV 7 chỗ phổ biến nhất tại Việt Nam.',
-      content: 'Nội dung chi tiết bài so sánh SUV...',
+      content:
+        'Toyota Fortuner, Hyundai Santa Fe và Ford Explorer là ba lựa chọn SUV 7 chỗ hàng đầu. Bài viết so sánh về không gian, động cơ, mức tiêu hao nhiên liệu, tiện nghi và giá thuê theo ngày để giúp bạn chọn được chiếc xe phù hợp cho chuyến đi gia đình.',
       thumbnailUrl:
         'https://images.unsplash.com/photo-1583121274602-3e2820c69888?w=600&h=400&fit=crop',
       status: 'PUBLISHED',
+      isFeatured: false,
+      categoryId: catRev.id,
       publishedAt: new Date('2024-11-01'),
+      tagSlugs: ['suv', 'so-sanh'],
+    },
+    {
+      title: 'Ưu đãi mùa hè: Giảm đến 20% khi thuê xe dài ngày',
+      slug: 'uu-dai-mua-he-giam-20',
+      excerpt: 'Chương trình khuyến mãi mùa hè 2026 với nhiều mã giảm giá hấp dẫn.',
+      content:
+        'Chào hè 2026, OtoRent tung ra loạt mã ưu đãi: SUMMER10 giảm 10%, VIP20 giảm tới 20% cho đơn từ 5 triệu. Bài viết hướng dẫn cách áp dụng mã, điều kiện sử dụng và mẹo kết hợp ưu đãi để tiết kiệm tối đa cho chuyến đi của bạn.',
+      thumbnailUrl:
+        'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=600&h=400&fit=crop',
+      status: 'PUBLISHED',
+      isFeatured: true,
+      categoryId: catPromo.id,
+      publishedAt: new Date('2026-06-01'),
+      tagSlugs: ['meo-hay'],
+    },
+    {
+      title: 'Đánh giá Mercedes C300 2024: Sedan sang trong tầm giá',
+      slug: 'danh-gia-mercedes-c300-2024',
+      excerpt: 'Trải nghiệm thực tế mẫu sedan hạng sang Mercedes C300 đời 2024.',
+      content:
+        'Mercedes C300 2024 nâng cấp ngôn ngữ thiết kế, màn hình MBUX lớn và động cơ mild-hybrid tiết kiệm. Sau hành trình 500km, chúng tôi đánh giá cao sự êm ái, cách âm tốt và cảm giác lái chắc chắn. Đây là lựa chọn lý tưởng cho khách thuê muốn trải nghiệm xe sang.',
+      thumbnailUrl:
+        'https://images.unsplash.com/photo-1618843479313-40f8afb4b4d8?w=600&h=400&fit=crop',
+      status: 'PUBLISHED',
+      isFeatured: false,
+      categoryId: catRev.id,
+      publishedAt: new Date('2026-05-20'),
+      tagSlugs: ['xe-sang', 'sedan'],
+    },
+    {
+      title: 'Bài viết nháp chưa xuất bản',
+      slug: 'bai-viet-nhap',
+      excerpt: 'Bài nháp dùng để kiểm thử bộ lọc PUBLISHED.',
+      content: 'Nội dung nháp — không nên xuất hiện trong danh sách công khai.',
+      status: 'DRAFT',
+      isFeatured: false,
+      categoryId: catExp.id,
+      publishedAt: null,
+      tagSlugs: [],
     },
   ];
   for (const p of posts) {
-    await prisma.post.upsert({ where: { slug: p.slug }, update: {}, create: p });
+    const { tagSlugs, ...data } = p;
+    const post = await prisma.post.upsert({
+      where: { slug: p.slug },
+      update: {
+        isFeatured: data.isFeatured,
+        categoryId: data.categoryId,
+        authorId: admin?.id ?? null,
+        status: data.status,
+        publishedAt: data.publishedAt,
+      },
+      create: { ...data, authorId: admin?.id ?? null },
+    });
+    for (const ts of tagSlugs) {
+      const tag = await tagBySlug(ts);
+      if (tag) {
+        await prisma.postTag.upsert({
+          where: { postId_tagId: { postId: post.id, tagId: tag.id } },
+          update: {},
+          create: { postId: post.id, tagId: tag.id },
+        });
+      }
+    }
   }
-  console.log('  ✓ Posts');
+  console.log('  ✓ Posts + Categories + Tags');
 
   // ─── 10) Insurance Plans (Day 12 — UC-15) ──────────────────────────
   const insurancePlans = [

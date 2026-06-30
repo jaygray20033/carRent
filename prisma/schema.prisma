@@ -345,20 +345,63 @@ model Review {
 model Post {
   id           Int       @id @default(autoincrement())
   authorId     Int?      @map("author_id")
+  categoryId   Int?      @map("category_id")
   title        String
   slug         String    @unique
   excerpt      String?   @db.Text
   content      String    @db.LongText
   thumbnailUrl String?   @map("thumbnail_url")
   status       String    @default("PUBLISHED")
+  isFeatured   Boolean   @default(false) @map("is_featured")
   viewCount    Int       @default(0) @map("view_count")
   publishedAt  DateTime? @map("published_at")
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  author   User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  category PostCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  tags     PostTag[]
 
+  @@index([status, publishedAt])
+  @@index([categoryId])
   @@map("posts")
+}
+
+// ─── Post Categories ────────────────────────────────────────────────
+model PostCategory {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  posts Post[]
+
+  @@map("post_categories")
+}
+
+// ─── Tags ───────────────────────────────────────────────────────────
+model Tag {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+
+  posts PostTag[]
+
+  @@map("tags")
+}
+
+// ─── Post ↔ Tag (many-to-many) ──────────────────────────────────────
+model PostTag {
+  postId Int @map("post_id")
+  tagId  Int @map("tag_id")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([postId, tagId])
+  @@index([tagId])
+  @@map("post_tags")
 }
 
 // ─── Wallets ────────────────────────────────────────────────────────

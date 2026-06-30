@@ -7,7 +7,8 @@ import prisma from '../config/db.js';
 import { createReleaseHoldWorker } from './releaseHoldWorker.js';
 import { createNotificationWorker } from './notificationWorker.js';
 import { createPaymentWorker } from './paymentWorker.js';
-import { scheduleReleaseHoldCron } from './queue.js';
+import { createViewSyncWorker } from './viewSyncWorker.js';
+import { scheduleReleaseHoldCron, scheduleFlushPostViewsCron } from './queue.js';
 
 export async function startWorkers() {
   console.log('[Workers] Starting BullMQ workers...');
@@ -20,9 +21,11 @@ export async function startWorkers() {
   const releaseHoldWorker = createReleaseHoldWorker();
   const notificationWorker = createNotificationWorker();
   const paymentWorker = createPaymentWorker();
+  const viewSyncWorker = createViewSyncWorker();
 
   // Schedule cron jobs
   await scheduleReleaseHoldCron();
+  await scheduleFlushPostViewsCron();
 
   console.log('[Workers] All workers started');
 
@@ -32,6 +35,7 @@ export async function startWorkers() {
     await releaseHoldWorker.close();
     await notificationWorker.close();
     await paymentWorker.close();
+    await viewSyncWorker.close();
     await prisma.$disconnect();
     process.exit(0);
   };

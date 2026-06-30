@@ -104,7 +104,7 @@ const revokeRefreshToken = async (userId, jti) => {
   await redis.del(rtKey(userId.toString(), jti)).catch(() => {});
   await prisma.refreshToken
     .updateMany({
-      where: { userId: BigInt(userId), tokenHash: jtiHash(jti), revokedAt: null },
+      where: { userId: Number(userId), tokenHash: jtiHash(jti), revokedAt: null },
       data: { revokedAt: new Date() },
     })
     .catch(() => {});
@@ -139,7 +139,7 @@ const revokeAllRefreshTokens = async (userId) => {
   }
 
   // 2) Delete all DB refresh tokens for this user
-  await prisma.refreshToken.deleteMany({ where: { userId: BigInt(uid) } }).catch(() => {});
+  await prisma.refreshToken.deleteMany({ where: { userId: Number(uid) } }).catch(() => {});
 };
 
 // --------------------------------------------------------------------------
@@ -389,7 +389,7 @@ export const authService = {
     // 2) Check DB row exists and is still valid (not revoked, not expired).
     const dbToken = await prisma.refreshToken.findFirst({
       where: {
-        userId: BigInt(payload.sub),
+        userId: Number(payload.sub),
         tokenHash: jtiHash(payload.jti),
         revokedAt: null,
         expiresAt: { gt: new Date() },
@@ -400,7 +400,7 @@ export const authService = {
     }
 
     const user = await prisma.user.findUnique({
-      where: { id: BigInt(payload.sub) },
+      where: { id: Number(payload.sub) },
       include: { role: true },
     });
     if (!user) throw new UnauthorizedError('User not found', 'USER_NOT_FOUND');
