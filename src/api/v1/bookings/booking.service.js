@@ -9,11 +9,51 @@ import {
   ConflictError,
   ForbiddenError,
   AppError,
+  UnprocessableError,
 } from '../../../utils/apiError.js';
 import { generateBookingCode } from '../../../utils/bookingCode.js';
 import { BOOKING_STATUS, TTL } from '../../../config/constants.js';
 import RedisLockService from '../../../services/RedisLockService.js';
 import { couponService } from '../coupons/coupon.service.js';
+import logger from '../../../config/logger.js';
+
+// Methods whose refund settles instantly against the internal wallet balance.
+const WALLET_METHOD = 'WALLET';
+// Methods that require an out-of-band provider refund (async job).
+const EXTERNAL_METHODS = ['VNPAY', 'MOMO', 'ZALOPAY'];
+
+/**
+ * UC-20 refund schedule. Percent of the paid amount returned to the renter,
+ * based on how long before pickup the cancellation happens.
+ *   ≥ 48h  → 100%
+ *   24–48h → 70%
+ *   < 24h  → 30%
+ *   after pickup → not cancelable (caller throws 422)
+ * Returns null when the pickup time has already passed.
+ */
+const computeRefundPercent = (pickupAt, now = new Date()) => {
+  const hoursToPickup = (new Date(pickupAt).getTime() - now.getTime()) / (1000 * 60 * 60);
+  if (hoursToPickup < 0) return null;
+  if (hoursToPickup >= 48) return 100;
+  if (hoursToPickup >= 24) return 70;
+  return 30;
+};
+
+/** Pick the settled BOOKING payment to refund against (most recent SUCCESS). */
+const findRefundablePayment = (payments = []) =>
+  payments
+    .filter((p) => p.type === 'BOOKING' && p.status === 'SUCCESS')
+    .sort((a, b) => new Date(b.paidAt ?? b.createdAt) - new Date(a.paidAt ?? a.createdAt))[0] ?? null;
+
+/** Lazily enqueue a provider refund job (degrades gracefully if Redis is down). */
+async function enqueueRefundJob(data) {
+  try {
+    const { paymentQueue } = await import('../../../jobs/queue.js');
+    await paymentQueue.add('process-refund', data);
+  } catch (err) {
+    logger.warn(`Failed to enqueue process-refund: ${err.message}`);
+  }
+}
 
 // Statuses that still occupy the vehicle for a given period.
 const ACTIVE_STATUSES = [
@@ -359,31 +399,171 @@ export const bookingService = {
     return { ...booking, holdTtl };
   },
 
+  /**
+   * UC-20 — Cancel a booking and compute/settle the refund.
+   *
+   *   - Owner only (admins go through adminRefund); status ∈ {DRAFT,
+   *     PENDING_PAYMENT, CONFIRMED}.
+   *   - Refund % follows computeRefundPercent(); after pickup → 422
+   *     BOOKING_NOT_CANCELABLE.
+   *   - The Booking transition + refund bookkeeping happen in one transaction.
+   *     WALLET payments are credited back inline (atomic with the cancel);
+   *     external providers (VNPAY/MOMO/ZALOPAY) get a refund job enqueued and
+   *     are flipped to REFUNDED by the worker once the provider confirms.
+   *   - The Redis hold is released best-effort afterwards.
+   */
   async cancel(userId, roleCode, id, reason) {
     const booking = await this.getById(userId, roleCode, id);
-    if (
-      ![BOOKING_STATUS.DRAFT, BOOKING_STATUS.PENDING_PAYMENT, BOOKING_STATUS.CONFIRMED].includes(
-        booking.status
-      )
-    )
-      throw new AppError('Cannot cancel booking in current status', 400, 'CANNOT_CANCEL');
+    if (booking.userId !== userId) throw new ForbiddenError('Not your booking');
+    return this._cancelAndRefund(booking, {
+      changedBy: userId,
+      reason: reason || 'User cancelled',
+      adminOverride: false,
+    });
+  },
 
-    const updated = await prisma.booking.update({
-      where: { id: booking.id },
-      data: {
-        status: BOOKING_STATUS.CANCELLED,
-        cancelReason: reason || 'User cancelled',
-        history: {
-          create: {
-            fromStatus: booking.status,
-            toStatus: BOOKING_STATUS.CANCELLED,
-            changedBy: userId,
-            note: reason || 'User cancelled',
+  /**
+   * Admin override (UC-20) — cancel + refund a booking bypassing the time
+   * window. The admin chooses the refund percent (defaults to 100%).
+   */
+  async adminRefund(adminId, id, { reason, refundPercent = 100 } = {}) {
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: { payments: true },
+    });
+    if (!booking) throw new NotFoundError('Booking');
+    return this._cancelAndRefund(booking, {
+      changedBy: adminId,
+      reason: reason || 'Admin refund',
+      adminOverride: true,
+      forcedPercent: refundPercent,
+    });
+  },
+
+  /**
+   * Shared cancel + refund engine used by both the owner cancel and the admin
+   * override. `adminOverride` skips the cancelable-status / time-window checks.
+   */
+  async _cancelAndRefund(booking, { changedBy, reason, adminOverride, forcedPercent }) {
+    const CANCELABLE = [
+      BOOKING_STATUS.DRAFT,
+      BOOKING_STATUS.PENDING_PAYMENT,
+      BOOKING_STATUS.CONFIRMED,
+    ];
+    if (!adminOverride && !CANCELABLE.includes(booking.status)) {
+      throw new AppError('Cannot cancel booking in current status', 400, 'CANNOT_CANCEL');
+    }
+    if ([BOOKING_STATUS.CANCELLED, BOOKING_STATUS.REFUNDED].includes(booking.status)) {
+      throw new AppError('Booking is already cancelled', 400, 'CANNOT_CANCEL');
+    }
+
+    // Determine the refund percent.
+    let refundPercent;
+    if (adminOverride) {
+      refundPercent = Math.max(0, Math.min(100, Math.round(forcedPercent ?? 100)));
+    } else {
+      refundPercent = computeRefundPercent(booking.pickupAt);
+      if (refundPercent === null) {
+        throw new UnprocessableError(
+          'Pickup time has passed; this booking can no longer be cancelled',
+          'BOOKING_NOT_CANCELABLE'
+        );
+      }
+    }
+
+    // What was actually paid (drives whether there's anything to refund).
+    const paidPayment = findRefundablePayment(booking.payments);
+    const paidAmount = paidPayment ? paidPayment.amount : 0;
+    const refundAmount = Math.round((paidAmount * refundPercent) / 100);
+
+    // Decide how the refund is processed.
+    //   - nothing paid (DRAFT / PENDING_PAYMENT, or 0%) → no refund needed
+    //   - WALLET                                        → settle inline now
+    //   - external provider                            → async job
+    let refundStatus = 'NONE';
+    let processVia = null;
+    if (paidPayment && refundAmount > 0) {
+      if (paidPayment.method === WALLET_METHOD) {
+        processVia = 'WALLET';
+        refundStatus = 'REFUNDED';
+      } else if (EXTERNAL_METHODS.includes(paidPayment.method)) {
+        processVia = 'PROVIDER';
+        refundStatus = 'PENDING';
+      } else {
+        // CASH / BANK_TRANSFER → manual back-office refund.
+        processVia = 'MANUAL';
+        refundStatus = 'PENDING';
+      }
+    }
+
+    const finalStatus =
+      refundStatus === 'REFUNDED' ? BOOKING_STATUS.REFUNDED : BOOKING_STATUS.CANCELLED;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      // Inline wallet refund: credit the balance + ledger row atomically.
+      if (processVia === 'WALLET') {
+        let wallet = await tx.wallet.findUnique({ where: { userId: booking.userId } });
+        if (!wallet) {
+          wallet = await tx.wallet.create({
+            data: { userId: booking.userId, balance: 0, currency: 'VND' },
+          });
+        }
+        const balanceBefore = wallet.balance;
+        const balanceAfter = balanceBefore + refundAmount;
+
+        await tx.wallet.update({ where: { id: wallet.id }, data: { balance: balanceAfter } });
+        await tx.walletTransaction.create({
+          data: {
+            walletId: wallet.id,
+            userId: booking.userId,
+            type: 'REFUND',
+            amount: refundAmount,
+            balanceBefore,
+            balanceAfter,
+            status: 'SUCCESS',
+            referenceType: 'BOOKING',
+            referenceId: booking.id,
+            description: `Hoàn ${refundPercent}% đơn ${booking.bookingCode}`,
+          },
+        });
+        await tx.payment.update({
+          where: { id: paidPayment.id },
+          data: { status: 'REFUNDED' },
+        });
+      }
+
+      return tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: finalStatus,
+          cancelReason: reason,
+          cancelledAt: new Date(),
+          refundAmount,
+          refundPercent,
+          refundStatus,
+          history: {
+            create: {
+              fromStatus: booking.status,
+              toStatus: finalStatus,
+              changedBy,
+              note: adminOverride
+                ? `Admin refund ${refundPercent}% (${refundAmount})`
+                : `Cancelled — refund ${refundPercent}% (${refundAmount})`,
+              metadata: JSON.stringify({
+                refundPercent,
+                refundAmount,
+                refundStatus,
+                processVia,
+                paymentId: paidPayment?.id ?? null,
+                adminOverride,
+              }),
+            },
           },
         },
-      },
+      });
     });
 
+    // Release the Redis hold (best-effort).
     await RedisLockService.releaseHold(
       booking.vehicleId,
       toIso(booking.pickupAt),
@@ -391,7 +571,54 @@ export const bookingService = {
       booking.id
     ).catch(() => {});
 
+    // External provider refund runs async; the worker flips REFUNDED on success.
+    if (processVia === 'PROVIDER') {
+      await enqueueRefundJob({
+        bookingId: booking.id,
+        paymentId: paidPayment.id,
+        method: paidPayment.method,
+        amount: refundAmount,
+        txnRef: paidPayment.txnRef,
+        transactionId: paidPayment.transactionId,
+      });
+    }
+
     return updated;
+  },
+
+  /**
+   * Finalise an external-provider refund (called by the payment worker after
+   * the provider's refund API confirms success). Idempotent: a booking already
+   * REFUNDED is a no-op. Flips Payment + Booking to REFUNDED.
+   */
+  async settleExternalRefund(bookingId, paymentId, transactionId = null) {
+    const booking = await prisma.booking.findUnique({ where: { id: Number(bookingId) } });
+    if (!booking) throw new NotFoundError('Booking');
+    if (booking.refundStatus === 'REFUNDED') return booking; // idempotent
+
+    return prisma.$transaction(async (tx) => {
+      if (paymentId) {
+        await tx.payment.update({
+          where: { id: Number(paymentId) },
+          data: { status: 'REFUNDED', ...(transactionId ? { transactionId } : {}) },
+        });
+      }
+      return tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: BOOKING_STATUS.REFUNDED,
+          refundStatus: 'REFUNDED',
+          history: {
+            create: {
+              fromStatus: booking.status,
+              toStatus: BOOKING_STATUS.REFUNDED,
+              note: `Provider refund completed (${booking.refundAmount})`,
+              metadata: JSON.stringify({ paymentId, transactionId }),
+            },
+          },
+        },
+      });
+    });
   },
 };
 

@@ -270,6 +270,10 @@ model Booking {
   status           String    @default("DRAFT")
   holdUntil        DateTime? @map("hold_until")
   cancelReason     String?   @map("cancel_reason") @db.Text
+  cancelledAt      DateTime? @map("cancelled_at")
+  refundAmount     Float     @default(0) @map("refund_amount")
+  refundPercent    Int       @default(0) @map("refund_percent")
+  refundStatus     String?   @map("refund_status") // null | PENDING | PROCESSING | REFUNDED | FAILED | NONE
   note             String?   @db.Text
   pricingSnapshot  String?   @map("pricing_snapshot") @db.Text
   createdAt        DateTime  @default(now()) @map("created_at")

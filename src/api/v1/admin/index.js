@@ -2,10 +2,12 @@
 import { Router } from 'express';
 import adminVehicleRoutes from './vehicles/adminVehicle.routes.js';
 import adminVehicleModelRoutes from './vehicle-models/adminVehicleModel.routes.js';
+import adminBookingRoutes from './bookings/adminBooking.routes.js';
 
 const router = Router();
 
 router.use('/vehicles', adminVehicleRoutes);
 router.use('/vehicle-models', adminVehicleModelRoutes);
+router.use('/bookings', adminBookingRoutes);
 
 export default router;

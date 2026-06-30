@@ -39,6 +39,7 @@ router.get('/', (_req, res) =>
       '/me/wallet/topup',
       '/admin/vehicles',
       '/admin/vehicle-models',
+      '/admin/bookings',
     ],
   })
 );

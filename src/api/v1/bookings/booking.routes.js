@@ -178,7 +178,11 @@ router.post('/:id/confirm', confirmBooking);
  * /bookings/{id}/cancel:
  *   post:
  *     tags: [Bookings]
- *     summary: Cancel a booking (DRAFT / PENDING_PAYMENT / CONFIRMED)
+ *     summary: Cancel a booking + compute refund (UC-20) — DRAFT / PENDING_PAYMENT / CONFIRMED
+ *     description: >
+ *       Refund % is based on time to pickup (≥48h → 100%, 24-48h → 70%, <24h → 30%).
+ *       WALLET payments are credited back immediately (status REFUNDED); VNPay/MoMo
+ *       enqueue a provider refund job (refundStatus PENDING → REFUNDED on success).
  *     security: [{ bearerAuth: [] }]
  *     parameters:
  *       - in: path
@@ -193,10 +197,11 @@ router.post('/:id/confirm', confirmBooking);
  *             properties:
  *               reason: { type: string }
  *     responses:
- *       200: { description: Booking cancelled }
+ *       200: { description: Booking cancelled with refund details (refundAmount, refundPercent, refundStatus) }
  *       400: { description: Cannot cancel in current status (CANNOT_CANCEL) }
  *       403: { description: Not your booking }
  *       404: { description: Booking not found }
+ *       422: { description: Pickup time has passed (BOOKING_NOT_CANCELABLE) }
  */
 router.post('/:id/cancel', cancelBooking);
 
