@@ -226,6 +226,7 @@ model Coupon {
   maxUsePerUser   Int       @default(1) @map("max_use_per_user")
   startAt         DateTime  @map("start_at")
   endAt           DateTime  @map("end_at")
+  appliesTo       String    @default("ALL") @map("applies_to") // ALL, CATEGORY, MODEL
   isActive        Boolean   @default(true) @map("is_active")
   createdAt       DateTime  @default(now()) @map("created_at")
 
