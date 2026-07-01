@@ -52,6 +52,8 @@ model User {
   payments           Payment[]
   posts              Post[]
   refreshTokens      RefreshToken[]
+  comments           Comment[]
+  notifications      Notification[]
 
   @@map("users")
 }
@@ -361,6 +363,7 @@ model Post {
   author   User?         @relation(fields: [authorId], references: [id], onDelete: SetNull)
   category PostCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   tags     PostTag[]
+  comments Comment[]
 
   @@index([status, publishedAt])
   @@index([categoryId])
@@ -455,4 +458,40 @@ model SiteSetting {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("site_settings")
+}
+
+// ─── Comments (UC-24) ───────────────────────────────────────────────
+model Comment {
+  id        Int      @id @default(autoincrement())
+  postId    Int      @map("post_id")
+  userId    Int      @map("user_id")
+  content   String   @db.Text
+  status    String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  post Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([postId, status])
+  @@index([userId])
+  @@index([status])
+  @@map("comments")
+}
+
+// ─── Notifications (UC-51 placeholder) ──────────────────────────────
+model Notification {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @map("user_id")
+  type      String // e.g. COMMENT_APPROVED
+  title     String
+  body      String?  @db.Text
+  link      String? // in-app deep link (e.g. /magazine/<slug>)
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
 }

@@ -14,6 +14,12 @@ export const postController = {
     return success(res, result);
   }),
 
+  // GET /posts/categories
+  categories: asyncHandler(async (_req, res) => {
+    const items = await postService.categories();
+    return success(res, { items });
+  }),
+
   // GET /posts/featured?limit=
   featured: asyncHandler(async (req, res) => {
     const limit = Math.min(Number(req.query.limit) || 3, 12);

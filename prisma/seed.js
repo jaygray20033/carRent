@@ -826,6 +826,40 @@ async function main() {
   }
   console.log('  ✓ Posts + Categories + Tags');
 
+  // 9b) Demo comments (Day 22 — UC-24). Idempotent: only seed if none exist
+  // for the target post, so re-running doesn't pile up duplicates.
+  const firstPost = await prisma.post.findUnique({
+    where: { slug: 'top-5-xe-sang-cho-thue-2024' },
+  });
+  if (firstPost && customer) {
+    const existingComments = await prisma.comment.count({ where: { postId: firstPost.id } });
+    if (existingComments === 0) {
+      await prisma.comment.createMany({
+        data: [
+          {
+            postId: firstPost.id,
+            userId: customer.id,
+            content: 'Bài viết rất hữu ích, mình đã thuê thử Mercedes C300 và trải nghiệm tuyệt vời!',
+            status: 'APPROVED',
+          },
+          {
+            postId: firstPost.id,
+            userId: customer.id,
+            content: 'Cho mình hỏi giá thuê BMW X5 cuối tuần có chênh nhiều không ạ?',
+            status: 'APPROVED',
+          },
+          {
+            postId: firstPost.id,
+            userId: customer.id,
+            content: 'Bình luận này đang chờ duyệt để kiểm thử luồng moderation.',
+            status: 'PENDING',
+          },
+        ],
+      });
+    }
+  }
+  console.log('  ✓ Comments');
+
   // ─── 10) Insurance Plans (Day 12 — UC-15) ──────────────────────────
   const insurancePlans = [
     {

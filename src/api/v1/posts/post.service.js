@@ -64,6 +64,20 @@ export const postService = {
     return result;
   },
 
+  /** UC-21 — post categories with published-post counts, for the list filter. */
+  async categories() {
+    const cats = await prisma.postCategory.findMany({
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        _count: { select: { posts: { where: { status: 'PUBLISHED' } } } },
+      },
+    });
+    return cats.map((c) => ({ id: c.id, name: c.name, slug: c.slug, postCount: c._count.posts }));
+  },
+
   /** UC-21 — featured posts (isFeatured = true, PUBLISHED). */
   async featured(limit = 3) {
     return prisma.post.findMany({
