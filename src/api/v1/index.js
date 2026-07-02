@@ -23,7 +23,10 @@ router.get('/', (_req, res) =>
     status: 'running',
     endpoints: [
       '/auth',
-      '/users',
+      '/me',
+      '/me/avatar',
+      '/me/change-password',
+      '/me/change-phone',
       '/cars',
       '/bookings',
       '/payments',
@@ -45,7 +48,6 @@ router.get('/', (_req, res) =>
 );
 
 router.use('/auth', authRoutes);
-router.use('/users', userRoutes);
 router.use('/cars', carRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/payments', paymentRoutes);
@@ -57,6 +59,7 @@ router.use('/posts', postRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coupons', couponRoutes);
 router.use('/me/wallet', walletRoutes);
+router.use('/me', userRoutes);
 router.use('/admin', adminRoutes);
 
 export default router;
