@@ -20,6 +20,9 @@ router.get('/vnpay/return', asyncHandler(paymentController.vnpayReturn));
 router.get('/vnpay/ipn', asyncHandler(paymentController.vnpayIpn));
 router.post('/vnpay/ipn', asyncHandler(paymentController.vnpayIpn));
 
+// GET /payments/me — the signed-in user's payment history. MUST precede /:id.
+router.get('/me', authenticate, asyncHandler(paymentController.listMine));
+
 router.get('/:id', authenticate, asyncHandler(paymentController.detail));
 
 // Dev-only: simulate gateway success callback

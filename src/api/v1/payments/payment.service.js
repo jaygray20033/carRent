@@ -43,6 +43,33 @@ export const paymentService = {
     return { payment, checkoutUrl: payUrl, payUrl, txnRef };
   },
 
+  // GET /payments/me — the signed-in user's payment history (bookings + topups).
+  async listMine(userId, { status, type } = {}) {
+    const where = { userId: Number(userId) };
+    if (status) where.status = status;
+    if (type) where.type = type;
+
+    const payments = await prisma.payment.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        booking: {
+          select: {
+            id: true,
+            bookingCode: true,
+            pickupAt: true,
+            returnAt: true,
+            totalDays: true,
+            vehicle: {
+              select: { id: true, name: true, modelYear: true, thumbnailUrl: true },
+            },
+          },
+        },
+      },
+    });
+    return payments;
+  },
+
   async getById(userId, id) {
     const payment = await prisma.payment.findUnique({
       where: { id: Number(id) },

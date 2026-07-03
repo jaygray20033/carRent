@@ -54,6 +54,7 @@ model User {
   refreshTokens      RefreshToken[]
   comments           Comment[]
   notifications      Notification[]
+  addresses          Address[]
 
   @@map("users")
 }
@@ -495,4 +496,27 @@ model Notification {
 
   @@index([userId, isRead])
   @@map("notifications")
+}
+
+// ─── Address Book (UC-42, UC-43) ────────────────────────────────────
+model Address {
+  id            Int      @id @default(autoincrement())
+  userId        Int      @map("user_id")
+  contactName   String   @map("contact_name")
+  contactPhone  String   @map("contact_phone")
+  line          String   @db.Text // street address (số nhà, đường)
+  ward          String?
+  district      String?
+  city          String
+  postalCode    String?  @map("postal_code")
+  latitude      Float?
+  longitude     Float?
+  isDefault     Boolean  @default(false) @map("is_default")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
 }

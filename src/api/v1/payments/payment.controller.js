@@ -15,6 +15,11 @@ export const paymentController = {
     return created(res, data, 'Checkout session created');
   },
 
+  listMine: async (req, res) => {
+    const payments = await paymentService.listMine(req.user.id, req.query);
+    return success(res, { payments });
+  },
+
   detail: async (req, res) => {
     const payment = await paymentService.getById(req.user.id, req.params.id);
     return success(res, { payment });
