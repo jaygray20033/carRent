@@ -11,6 +11,21 @@ export const adminBookingController = {
     });
     return success(res, result, 'Booking refunded (admin override)');
   },
+
+  // POST /admin/bookings/:id/start — CONFIRMED → IN_USE at handover.
+  start: async (req, res) => {
+    const result = await bookingService.startRental(req.user.id, req.params.id);
+    return success(res, result, 'Rental started');
+  },
+
+  // POST /admin/bookings/:id/return — IN_USE → COMPLETED on return.
+  return: async (req, res) => {
+    const result = await bookingService.returnRental(req.user.id, req.params.id, {
+      extraFee: req.body?.extraFee,
+      note: req.body?.note,
+    });
+    return success(res, result, 'Rental completed');
+  },
 };
 
 export default adminBookingController;

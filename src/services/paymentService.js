@@ -18,6 +18,18 @@ import { walletService } from '../api/v1/wallet/wallet.service.js';
 import RedisLockService from './RedisLockService.js';
 import { BOOKING_STATUS } from '../config/constants.js';
 import { NotFoundError, AppError } from '../utils/apiError.js';
+import { notificationService } from './notificationService.js';
+
+/** Persist an in-app "booking confirmed" notification (best-effort). */
+async function notifyBookingConfirmed(booking) {
+  await notificationService.notify({
+    userId: booking.userId,
+    type: 'BOOKING_CONFIRMED',
+    title: 'Đặt xe thành công',
+    body: `Đơn ${booking.bookingCode} đã được xác nhận. Hẹn gặp bạn tại điểm nhận xe!`,
+    link: `/me/bookings/${booking.id}`,
+  });
+}
 
 const toIso = (d) => new Date(d).toISOString();
 
@@ -175,6 +187,7 @@ export const paymentService = {
       userId: updatedBooking.userId,
       channels: ['email', 'sms'],
     });
+    await notifyBookingConfirmed(updatedBooking);
 
     return { payment, booking: updatedBooking };
   },
@@ -269,6 +282,7 @@ export const paymentService = {
         userId: booking.userId,
         channels: ['email', 'sms'],
       });
+      await notifyBookingConfirmed(booking);
 
       return updated;
     }

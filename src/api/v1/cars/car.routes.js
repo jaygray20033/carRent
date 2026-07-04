@@ -4,6 +4,7 @@ import { asyncHandler } from '../../../middlewares/asyncHandler.js';
 import { validate } from '../../../middlewares/validate.middleware.js';
 import { carController } from './car.controller.js';
 import { listCarsQuerySchema, searchQuerySchema } from './car.validator.js';
+import { reviewController } from '../reviews/review.controller.js';
 
 const router = Router();
 
@@ -113,6 +114,28 @@ router.get('/:id(\\d+)', asyncHandler(carController.detail));
  *       404: { description: Reference vehicle not found }
  */
 router.get('/:id(\\d+)/similar', asyncHandler(carController.similar));
+
+/**
+ * @swagger
+ * /cars/{id}/reviews:
+ *   get:
+ *     tags: [Cars]
+ *     summary: List APPROVED reviews for a vehicle (UC-50)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *     responses:
+ *       200: { description: Paginated reviews for the vehicle }
+ */
+router.get('/:id(\\d+)/reviews', asyncHandler(reviewController.listByVehicle));
 
 /**
  * @swagger

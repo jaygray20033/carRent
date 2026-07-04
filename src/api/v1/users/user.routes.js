@@ -12,10 +12,21 @@ import {
   requestPhoneChangeSchema,
   verifyPhoneChangeSchema,
 } from './user.validator.js';
+import { reviewController } from '../reviews/review.controller.js';
+import { notificationController } from '../notifications/notification.controller.js';
 
 const router = Router();
 
 router.use(authenticate);
+
+// UC-50 — my reviews + bookings still awaiting a review
+router.get('/reviews', asyncHandler(reviewController.listMine));
+router.get('/reviews/reviewable', asyncHandler(reviewController.reviewable));
+
+// UC-51 — notification feed
+router.get('/notifications', asyncHandler(notificationController.list));
+router.patch('/notifications/read-all', asyncHandler(notificationController.readAll));
+router.patch('/notifications/:id/read', asyncHandler(notificationController.markRead));
 
 // UC-37 / UC-38 — profile read + update
 router.get('/', asyncHandler(userController.me));

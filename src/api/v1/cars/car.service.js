@@ -263,7 +263,8 @@ export const carService = {
       vehicleModel: car.model || null,
       deposit: car.depositAmount,
       rates: buildRates(car),
-      rating, // { avg, count } — aggregated from reviews (T6 placeholder = 0)
+      rating: rating.avg, // numeric avg from reviews (0 when none)
+      reviewCount: rating.count, // live count, consistent with the list endpoint
     };
   },
 

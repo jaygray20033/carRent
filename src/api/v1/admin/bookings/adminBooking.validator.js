@@ -11,4 +11,10 @@ export const adminRefundSchema = z.object({
   refundPercent: z.coerce.number().int().min(0).max(100).optional(),
 });
 
-export default { idParamSchema, adminRefundSchema };
+// POST /admin/bookings/:id/return — optional extra fee (fuel/charge/damage).
+export const returnBookingSchema = z.object({
+  extraFee: z.coerce.number().min(0).max(1_000_000_000).optional(),
+  note: z.string().max(500).optional(),
+});
+
+export default { idParamSchema, adminRefundSchema, returnBookingSchema };

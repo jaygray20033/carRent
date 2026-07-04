@@ -14,6 +14,7 @@ import insurancePlanRoutes from './insurance-plans/insurancePlan.routes.js';
 import couponRoutes from './coupons/coupon.routes.js';
 import walletRoutes from './wallet/wallet.routes.js';
 import addressRoutes from './me/addresses/address.routes.js';
+import notificationRoutes from './notifications/notification.routes.js';
 import adminRoutes from './admin/index.js';
 
 const router = Router();
@@ -61,6 +62,7 @@ router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coupons', couponRoutes);
 router.use('/me/wallet', walletRoutes);
 router.use('/me/addresses', addressRoutes);
+router.use('/me/notifications', notificationRoutes);
 router.use('/me', userRoutes);
 router.use('/admin', adminRoutes);
 

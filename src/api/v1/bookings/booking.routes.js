@@ -12,6 +12,8 @@ import {
   cancelBooking,
 } from './booking.controller.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
+import { asyncHandler } from '../../../middlewares/asyncHandler.js';
+import { reviewController } from '../reviews/review.controller.js';
 
 const router = Router();
 
@@ -204,5 +206,39 @@ router.post('/:id/confirm', confirmBooking);
  *       422: { description: Pickup time has passed (BOOKING_NOT_CANCELABLE) }
  */
 router.post('/:id/cancel', cancelBooking);
+
+/**
+ * @swagger
+ * /bookings/{id}/review:
+ *   post:
+ *     tags: [Bookings]
+ *     summary: Review a vehicle after a completed rental (UC-50)
+ *     description: Only the owner of a COMPLETED booking may review, and only once.
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [rating]
+ *             properties:
+ *               rating: { type: integer, minimum: 1, maximum: 5 }
+ *               content: { type: string }
+ *               photos: { type: array, items: { type: string, format: uri } }
+ *     responses:
+ *       201: { description: Review submitted }
+ *       400: { description: Booking is not COMPLETED (BOOKING_NOT_COMPLETED) }
+ *       403: { description: Not your booking }
+ *       404: { description: Booking not found }
+ *       409: { description: Booking already reviewed (ALREADY_REVIEWED) }
+ *       422: { description: Validation failed }
+ */
+router.post('/:id/review', asyncHandler(reviewController.create));
 
 export default router;

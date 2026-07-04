@@ -15,6 +15,7 @@ import { generateBookingCode } from '../../../utils/bookingCode.js';
 import { BOOKING_STATUS, TTL } from '../../../config/constants.js';
 import RedisLockService from '../../../services/RedisLockService.js';
 import { couponService } from '../coupons/coupon.service.js';
+import { notificationService } from '../../../services/notificationService.js';
 import logger from '../../../config/logger.js';
 
 // Methods whose refund settles instantly against the internal wallet balance.
@@ -441,6 +442,107 @@ export const bookingService = {
   },
 
   /**
+   * Day 30 — Operator/Agent starts the rental at handover.
+   * CONFIRMED → IN_USE, stamps actualPickupAt and marks the vehicle RENTED.
+   */
+  async startRental(staffId, id) {
+    const booking = await prisma.booking.findUnique({ where: { id: Number(id) } });
+    if (!booking) throw new NotFoundError('Booking');
+    if (booking.status !== BOOKING_STATUS.CONFIRMED) {
+      throw new AppError(
+        'Only CONFIRMED bookings can be started',
+        400,
+        'BOOKING_NOT_STARTABLE'
+      );
+    }
+
+    const now = new Date();
+    return prisma.$transaction(async (tx) => {
+      const updated = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: BOOKING_STATUS.IN_USE,
+          actualPickupAt: now,
+          history: {
+            create: {
+              fromStatus: booking.status,
+              toStatus: BOOKING_STATUS.IN_USE,
+              changedBy: staffId,
+              note: 'Rental started (vehicle handed over)',
+              metadata: JSON.stringify({ actualPickupAt: now.toISOString() }),
+            },
+          },
+        },
+        include: { vehicle: { include: { brand: true, model: true } } },
+      });
+      await tx.vehicle.update({
+        where: { id: booking.vehicleId },
+        data: { status: 'RENTED' },
+      });
+      return updated;
+    });
+  },
+
+  /**
+   * Day 30 — Operator/Agent closes out the rental on return.
+   * IN_USE → COMPLETED, stamps actualReturnAt, records an optional extra fee
+   * (fuel / charging / damage), frees the vehicle, and notifies the renter to
+   * leave a review.
+   */
+  async returnRental(staffId, id, { extraFee = 0, note } = {}) {
+    const booking = await prisma.booking.findUnique({ where: { id: Number(id) } });
+    if (!booking) throw new NotFoundError('Booking');
+    if (booking.status !== BOOKING_STATUS.IN_USE) {
+      throw new AppError(
+        'Only IN_USE bookings can be returned',
+        400,
+        'BOOKING_NOT_RETURNABLE'
+      );
+    }
+
+    const fee = Math.max(0, Math.round(Number(extraFee) || 0));
+    const now = new Date();
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const result = await tx.booking.update({
+        where: { id: booking.id },
+        data: {
+          status: BOOKING_STATUS.COMPLETED,
+          actualReturnAt: now,
+          extraFee: fee,
+          ...(note !== undefined ? { note } : {}),
+          history: {
+            create: {
+              fromStatus: booking.status,
+              toStatus: BOOKING_STATUS.COMPLETED,
+              changedBy: staffId,
+              note: note || (fee > 0 ? `Returned with extra fee ${fee}` : 'Vehicle returned'),
+              metadata: JSON.stringify({ actualReturnAt: now.toISOString(), extraFee: fee }),
+            },
+          },
+        },
+        include: { vehicle: { include: { brand: true, model: true } } },
+      });
+      await tx.vehicle.update({
+        where: { id: booking.vehicleId },
+        data: { status: 'AVAILABLE' },
+      });
+      return result;
+    });
+
+    // Invite the renter to review the car (best-effort — never blocks the return).
+    await notificationService.notify({
+      userId: booking.userId,
+      type: 'REVIEW_REQUEST',
+      title: 'Đánh giá chuyến đi của bạn',
+      body: `Bạn đã hoàn tất đơn ${booking.bookingCode}. Chia sẻ đánh giá để giúp người thuê khác nhé!`,
+      link: `/me/reviews`,
+    });
+
+    return updated;
+  },
+
+  /**
    * Shared cancel + refund engine used by both the owner cancel and the admin
    * override. `adminOverride` skips the cancelable-status / time-window checks.
    */
@@ -582,6 +684,18 @@ export const bookingService = {
         transactionId: paidPayment.transactionId,
       });
     }
+
+    // In-app notification for the renter (best-effort — never blocks the cancel).
+    const refunded = refundStatus === 'REFUNDED';
+    await notificationService.notify({
+      userId: booking.userId,
+      type: refunded ? 'BOOKING_REFUNDED' : 'BOOKING_CANCELLED',
+      title: refunded ? 'Đơn đã được hoàn tiền' : 'Đơn đã được huỷ',
+      body: refunded
+        ? `Đơn ${booking.bookingCode} đã huỷ và hoàn ${refundAmount.toLocaleString('vi-VN')}đ vào ví của bạn.`
+        : `Đơn ${booking.bookingCode} đã được huỷ.${refundAmount > 0 ? ` Hoàn ${refundPercent}% đang được xử lý.` : ''}`,
+      link: `/me/bookings/${booking.id}`,
+    });
 
     return updated;
   },
