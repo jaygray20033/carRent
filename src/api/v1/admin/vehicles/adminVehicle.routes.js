@@ -10,6 +10,8 @@ import {
   adminListVehiclesQuerySchema,
   createVehicleSchema,
   updateVehicleSchema,
+  updateStatusSchema,
+  vehicleBookingsQuerySchema,
   idParamSchema,
 } from './adminVehicle.validator.js';
 
@@ -94,6 +96,50 @@ router.delete(
   '/:id',
   validate(idParamSchema, 'params'),
   asyncHandler(adminVehicleController.remove)
+);
+
+/**
+ * @swagger
+ * /admin/vehicles/{id}/status:
+ *   patch:
+ *     tags: [Admin - Vehicles]
+ *     summary: Quick status change (AVAILABLE | MAINTENANCE | RETIRED)
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [AVAILABLE, MAINTENANCE, RETIRED] }
+ */
+router.patch(
+  '/:id/status',
+  validate(idParamSchema, 'params'),
+  validate(updateStatusSchema, 'body'),
+  asyncHandler(adminVehicleController.updateStatus)
+);
+
+/**
+ * @swagger
+ * /admin/vehicles/{id}/bookings:
+ *   get:
+ *     tags: [Admin - Vehicles]
+ *     summary: Booking history for a vehicle
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Paginated booking history }
+ */
+router.get(
+  '/:id/bookings',
+  validate(idParamSchema, 'params'),
+  validate(vehicleBookingsQuerySchema, 'query'),
+  asyncHandler(adminVehicleController.bookings)
 );
 
 /**

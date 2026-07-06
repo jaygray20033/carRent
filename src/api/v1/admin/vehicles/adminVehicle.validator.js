@@ -58,6 +58,19 @@ export const createVehicleSchema = z.object({
 
 export const updateVehicleSchema = createVehicleSchema.partial();
 
+// Quick-action status change (UC-53). RENTED is excluded — it's driven by the
+// booking lifecycle, not set directly by admins.
+export const updateStatusSchema = z.object({
+  status: z.enum(['AVAILABLE', 'MAINTENANCE', 'RETIRED']),
+});
+
+// Booking-history query for a single vehicle (UC-53).
+export const vehicleBookingsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  status: z.string().optional(),
+});
+
 export const idParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });

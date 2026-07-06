@@ -186,6 +186,52 @@ export const adminVehicleService = {
     return this.getById(vehicle.id);
   },
 
+  /**
+   * Quick-action status change (UC-53). Only AVAILABLE | MAINTENANCE | RETIRED
+   * are valid here — RENTED is driven by the booking lifecycle, not by admins.
+   */
+  async updateStatus(id, status) {
+    const existing = await prisma.vehicle.findUnique({ where: { id: Number(id) } });
+    if (!existing) throw new NotFoundError('Vehicle');
+    return prisma.vehicle.update({
+      where: { id: Number(id) },
+      data: { status },
+      include: detailInclude,
+    });
+  },
+
+  /**
+   * Booking history for a single vehicle (UC-53), newest first, paginated.
+   */
+  async listBookings(id, query) {
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: Number(id) } });
+    if (!vehicle) throw new NotFoundError('Vehicle');
+
+    const page = Number(query.page) > 0 ? Number(query.page) : 1;
+    const limit = Number(query.limit) > 0 ? Math.min(Number(query.limit), 100) : 20;
+    const skip = (page - 1) * limit;
+
+    const where = { vehicleId: Number(id) };
+    if (query.status) where.status = query.status;
+
+    const [total, items] = await Promise.all([
+      prisma.booking.count({ where }),
+      prisma.booking.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          user: { select: { id: true, fullName: true, phone: true, email: true } },
+          pickupStation: { select: { id: true, name: true, city: true } },
+          dropoffStation: { select: { id: true, name: true, city: true } },
+        },
+      }),
+    ]);
+
+    return { items, total, page, limit };
+  },
+
   async _assertUnique(slug, licensePlate, excludeId = null) {
     if (!slug && !licensePlate) return;
     const or = [];

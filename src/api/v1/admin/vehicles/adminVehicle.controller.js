@@ -39,6 +39,22 @@ export const adminVehicleController = {
     return success(res, { vehicle }, 'Vehicle retired (soft deleted)');
   },
 
+  // PATCH /admin/vehicles/:id/status  (quick action)
+  updateStatus: async (req, res) => {
+    const vehicle = await adminVehicleService.updateStatus(req.params.id, req.body.status);
+    return success(res, { vehicle }, 'Vehicle status updated');
+  },
+
+  // GET /admin/vehicles/:id/bookings  (booking history of a vehicle)
+  bookings: async (req, res) => {
+    const result = await adminVehicleService.listBookings(req.params.id, req.query);
+    return paginated(res, result.items, {
+      total: result.total,
+      page: result.page,
+      limit: result.limit,
+    });
+  },
+
   // POST /admin/vehicles/:id/images  (multipart, <=10 files field "images")
   uploadImages: async (req, res) => {
     const files = req.files || [];
