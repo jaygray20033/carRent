@@ -1,8 +1,39 @@
 // src/api/v1/admin/bookings/adminBooking.validator.js
 import { z } from 'zod';
 
+const BOOKING_STATUSES = [
+  'DRAFT',
+  'PENDING_PAYMENT',
+  'CONFIRMED',
+  'IN_USE',
+  'COMPLETED',
+  'CANCELLED',
+  'REFUNDED',
+];
+
 export const idParamSchema = z.object({
   id: z.coerce.number().int().positive('id must be a positive integer'),
+});
+
+// GET /admin/bookings — list filters (UC-54).
+export const adminListBookingsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().positive().max(100).optional(),
+  status: z.enum(BOOKING_STATUSES).optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  q: z.string().max(120).optional(),
+});
+
+// POST /admin/bookings/:id/note — internal note (timeline entry).
+export const addNoteSchema = z.object({
+  note: z.string().min(1, 'Note is required').max(1000),
+});
+
+// POST /admin/bookings/:id/confirm-payment — manual offline settlement.
+export const confirmPaymentSchema = z.object({
+  method: z.enum(['BANK_TRANSFER', 'CASH']).optional(),
+  note: z.string().max(500).optional(),
 });
 
 // POST /admin/bookings/:id/refund — admin override (bypasses time window).
@@ -17,4 +48,11 @@ export const returnBookingSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-export default { idParamSchema, adminRefundSchema, returnBookingSchema };
+export default {
+  idParamSchema,
+  adminRefundSchema,
+  returnBookingSchema,
+  adminListBookingsQuerySchema,
+  addNoteSchema,
+  confirmPaymentSchema,
+};

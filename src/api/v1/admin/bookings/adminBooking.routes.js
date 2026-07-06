@@ -5,7 +5,14 @@ import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { requireRole } from '../../../../middlewares/rbac.middleware.js';
 import { validate } from '../../../../middlewares/validate.middleware.js';
 import { adminBookingController } from './adminBooking.controller.js';
-import { idParamSchema, adminRefundSchema, returnBookingSchema } from './adminBooking.validator.js';
+import {
+  idParamSchema,
+  adminRefundSchema,
+  returnBookingSchema,
+  adminListBookingsQuerySchema,
+  addNoteSchema,
+  confirmPaymentSchema,
+} from './adminBooking.validator.js';
 
 const router = Router();
 
@@ -13,9 +20,128 @@ const router = Router();
 // AGENT, gated per-route below.
 router.use(authenticate, requireRole(['ADMIN', 'OPERATOR', 'AGENT']));
 
-// Refund is not an agent action.
+// Refund/list/note/confirm-payment are not agent actions.
 const NO_AGENT = requireRole(['ADMIN', 'OPERATOR']);
 const HANDOVER = requireRole(['ADMIN', 'OPERATOR', 'AGENT']);
+
+/**
+ * @swagger
+ * /admin/bookings:
+ *   get:
+ *     tags: [Admin - Bookings]
+ *     summary: List bookings (UC-54) — filter by status, pickup-date range, q
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [DRAFT, PENDING_PAYMENT, CONFIRMED, IN_USE, COMPLETED, CANCELLED, REFUNDED] }
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: q
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Paginated booking list }
+ */
+router.get(
+  '/',
+  NO_AGENT,
+  validate(adminListBookingsQuerySchema, 'query'),
+  asyncHandler(adminBookingController.list)
+);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}:
+ *   get:
+ *     tags: [Admin - Bookings]
+ *     summary: Booking detail (UC-54) — full info + payments + history timeline
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Booking detail }
+ *       404: { description: Booking not found }
+ */
+router.get(
+  '/:id',
+  NO_AGENT,
+  validate(idParamSchema, 'params'),
+  asyncHandler(adminBookingController.detail)
+);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}/note:
+ *   post:
+ *     tags: [Admin - Bookings]
+ *     summary: Add an internal note (UC-54) — appended to the history timeline
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [note]
+ *             properties:
+ *               note: { type: string }
+ *     responses:
+ *       200: { description: Note added, returns booking with timeline }
+ *       404: { description: Booking not found }
+ */
+router.post(
+  '/:id/note',
+  NO_AGENT,
+  validate(idParamSchema, 'params'),
+  validate(addNoteSchema, 'body'),
+  asyncHandler(adminBookingController.note)
+);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}/confirm-payment:
+ *   post:
+ *     tags: [Admin - Bookings]
+ *     summary: Manually confirm an offline payment (UC-54) — BANK_TRANSFER / CASH
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               method: { type: string, enum: [BANK_TRANSFER, CASH] }
+ *               note: { type: string }
+ *     responses:
+ *       200: { description: Payment confirmed, booking CONFIRMED }
+ *       400: { description: Booking not in PENDING_PAYMENT (BOOKING_NOT_PAYABLE) }
+ *       404: { description: Booking not found }
+ */
+router.post(
+  '/:id/confirm-payment',
+  NO_AGENT,
+  validate(idParamSchema, 'params'),
+  validate(confirmPaymentSchema, 'body'),
+  asyncHandler(adminBookingController.confirmPayment)
+);
 
 /**
  * @swagger
