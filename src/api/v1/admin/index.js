@@ -7,9 +7,11 @@ import adminCommentRoutes from './comments/adminComment.routes.js';
 import adminPostRoutes from './posts/adminPost.routes.js';
 import { adminCategoryRoutes, adminTagRoutes } from './taxonomies/adminTaxonomy.routes.js';
 import adminCouponRoutes from './coupons/adminCoupon.routes.js';
+import adminDashboardRoutes from './dashboard/adminDashboard.routes.js';
 
 const router = Router();
 
+router.use('/dashboard', adminDashboardRoutes);
 router.use('/vehicles', adminVehicleRoutes);
 router.use('/vehicle-models', adminVehicleModelRoutes);
 router.use('/bookings', adminBookingRoutes);
