@@ -15,7 +15,37 @@ const router = Router();
 
 router.use(authenticate, requireRole(['ADMIN', 'OPERATOR']));
 
+/**
+ * @swagger
+ * /admin/contact-messages:
+ *   get:
+ *     tags: [Admin - Contact]
+ *     summary: List contact messages (UC-29)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [NEW, IN_PROGRESS, RESOLVED] }
+ *     responses:
+ *       200: { description: Contact messages }
+ */
 router.get('/', validate(listQuerySchema, 'query'), adminContactController.list);
+
+/**
+ * @swagger
+ * /admin/contact-messages/{id}:
+ *   patch:
+ *     tags: [Admin - Contact]
+ *     summary: Update a contact message status / add a reply note (UC-29)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Contact message updated }
+ */
 router.patch(
   '/:id',
   validate(idParamSchema, 'params'),

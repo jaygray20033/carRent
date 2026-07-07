@@ -7,7 +7,13 @@ import { success } from '../../../utils/apiResponse.js';
 const router = Router();
 
 /**
- * GET /categories — list all vehicle categories
+ * @swagger
+ * /categories:
+ *   get:
+ *     tags: [Catalog]
+ *     summary: List all vehicle categories (with vehicle counts)
+ *     responses:
+ *       200: { description: All categories }
  */
 router.get(
   '/',

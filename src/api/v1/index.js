@@ -17,6 +17,8 @@ import addressRoutes from './me/addresses/address.routes.js';
 import notificationRoutes from './notifications/notification.routes.js';
 import contactRoutes from './contact/contact.routes.js';
 import roadsideStationRoutes from './roadside-stations/roadsideStation.routes.js';
+import agentApplicationRoutes from './agent-applications/agentApplication.routes.js';
+import sosRequestRoutes from './sos-requests/sosRequest.routes.js';
 import adminRoutes from './admin/index.js';
 
 const router = Router();
@@ -73,6 +75,9 @@ router.use('/me/notifications', notificationRoutes);
 router.use('/roadside-stations', roadsideStationRoutes);
 // Contact router owns both /contact-messages and /site-settings/contact.
 router.use('/', contactRoutes);
+// Agent-application router owns /agent-applications and /me/agent-application.
+router.use('/', agentApplicationRoutes);
+router.use('/sos-requests', sosRequestRoutes);
 router.use('/me', userRoutes);
 router.use('/admin', adminRoutes);
 

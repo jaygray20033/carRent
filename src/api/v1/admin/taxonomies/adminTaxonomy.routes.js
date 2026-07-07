@@ -12,6 +12,82 @@ import {
   updateTaxonomySchema,
 } from './adminTaxonomy.validator.js';
 
+/**
+ * @swagger
+ * /admin/post-categories:
+ *   get:
+ *     tags: [Admin - Blog]
+ *     summary: List post categories (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Categories }
+ *   post:
+ *     tags: [Admin - Blog]
+ *     summary: Create a post category (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: Category created }
+ * /admin/post-categories/{id}:
+ *   patch:
+ *     tags: [Admin - Blog]
+ *     summary: Update a post category (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Category updated }
+ *   delete:
+ *     tags: [Admin - Blog]
+ *     summary: Delete a post category (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Category deleted }
+ * /admin/tags:
+ *   get:
+ *     tags: [Admin - Blog]
+ *     summary: List tags (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Tags }
+ *   post:
+ *     tags: [Admin - Blog]
+ *     summary: Create a tag (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: Tag created }
+ * /admin/tags/{id}:
+ *   patch:
+ *     tags: [Admin - Blog]
+ *     summary: Update a tag (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Tag updated }
+ *   delete:
+ *     tags: [Admin - Blog]
+ *     summary: Delete a tag (UC-56)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Tag deleted }
+ */
+
 // Build a CRUD router over a taxonomy controller quartet.
 const makeRouter = (controller) => {
   const router = Router();

@@ -8,7 +8,26 @@ import { parsePagination, paginatedResponse } from '../../../utils/pagination.js
 const router = Router();
 
 /**
- * GET /vehicle-models?category=slug&brand=slug&page=1&size=20
+ * @swagger
+ * /vehicle-models:
+ *   get:
+ *     tags: [Catalog]
+ *     summary: List vehicle models (filter by category/brand slug)
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema: { type: string }
+ *       - in: query
+ *         name: brand
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: size
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Paginated vehicle models }
  */
 router.get(
   '/',

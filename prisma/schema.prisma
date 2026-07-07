@@ -55,6 +55,8 @@ model User {
   comments           Comment[]
   notifications      Notification[]
   addresses          Address[]
+  agentApplications  AgentApplication[]
+  sosRequests        SosRequest[]
 
   @@map("users")
 }
@@ -293,6 +295,8 @@ model Booking {
   insurancePlan  InsurancePlan? @relation(fields: [insurancePlanId], references: [id])
   history        BookingHistory[]
   payments       Payment[]
+  sosRequests        SosRequest[] @relation("bookingSos")
+  sosReplacementFor  SosRequest[] @relation("replacementBooking")
 
   @@map("bookings")
 }
@@ -503,6 +507,8 @@ model RescueStation {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  sosRequests SosRequest[]
+
   @@index([isActive])
   @@map("rescue_stations")
 }
@@ -564,4 +570,62 @@ model Address {
 
   @@index([userId])
   @@map("addresses")
+}
+
+// ─── Agent Applications (Day 38 — UC-32/33) ─────────────────────────
+model AgentApplication {
+  id                   Int      @id @default(autoincrement())
+  userId               Int      @map("user_id")
+  applicantType        String   @default("INDIVIDUAL") @map("applicant_type") // INDIVIDUAL | BUSINESS
+  businessName         String   @map("business_name")
+  taxCode              String?  @map("tax_code") // MST
+  address              String   @db.Text
+  expectedVehicleCount Int      @default(1) @map("expected_vehicle_count")
+  note                 String?  @db.Text
+  kycFileUrl           String?  @map("kyc_file_url")
+  status               String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedBy           Int?     @map("reviewed_by")
+  reviewNote           String?  @map("review_note") @db.Text
+  reviewedAt           DateTime? @map("reviewed_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("agent_applications")
+}
+
+// ─── SOS Requests (Day 39 — UC-34/35/36) ────────────────────────────
+model SosRequest {
+  id                   Int       @id @default(autoincrement())
+  bookingId            Int       @map("booking_id")
+  userId               Int       @map("user_id")
+  latitude             Float
+  longitude            Float
+  issueType            String    @map("issue_type") // FLAT_TIRE | DEAD_BATTERY | ACCIDENT | ENGINE | OUT_OF_FUEL | OTHER
+  description          String?   @db.Text
+  photos               String?   @db.Text // JSON array of image URLs
+  status               String    @default("REQUESTED") // REQUESTED | DISPATCHED | ON_THE_WAY | RESOLVED | CANCELLED
+  rescueStationId      Int?      @map("rescue_station_id")
+  distanceKm           Float?    @map("distance_km")
+  estimatedArrival     DateTime? @map("estimated_arrival")
+  driverName           String?   @map("driver_name")
+  driverPhone          String?   @map("driver_phone")
+  resolutionNote       String?   @map("resolution_note") @db.Text
+  replacementBookingId Int?      @map("replacement_booking_id")
+  handledBy            Int?      @map("handled_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  booking            Booking        @relation("bookingSos", fields: [bookingId], references: [id])
+  user               User           @relation(fields: [userId], references: [id])
+  rescueStation      RescueStation? @relation(fields: [rescueStationId], references: [id])
+  replacementBooking Booking?       @relation("replacementBooking", fields: [replacementBookingId], references: [id])
+
+  @@index([status])
+  @@index([userId])
+  @@index([bookingId])
+  @@map("sos_requests")
 }

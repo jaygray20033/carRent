@@ -12,10 +12,37 @@ const router = Router();
 // All admin comment routes require ADMIN or OPERATOR.
 router.use(authenticate, requireRole(['ADMIN', 'OPERATOR']));
 
-// GET /admin/comments?status=PENDING&page=&size=
+/**
+ * @swagger
+ * /admin/comments:
+ *   get:
+ *     tags: [Admin - Blog]
+ *     summary: Comment moderation queue (UC-24)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [PENDING, APPROVED, REJECTED] }
+ *     responses:
+ *       200: { description: Comments }
+ */
 router.get('/', validate(listQuerySchema, 'query'), adminCommentController.list);
 
-// PATCH /admin/comments/:id — body { status: APPROVED|REJECTED }
+/**
+ * @swagger
+ * /admin/comments/{id}:
+ *   patch:
+ *     tags: [Admin - Blog]
+ *     summary: Approve or reject a comment (UC-24)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Comment moderated }
+ */
 router.patch(
   '/:id',
   validate(idParamSchema, 'params'),

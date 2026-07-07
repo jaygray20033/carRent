@@ -13,6 +13,8 @@ import adminReportsRoutes from './reports/adminReports.routes.js';
 import adminSettingsRoutes from './settings/adminSettings.routes.js';
 import adminContactRoutes from './contact-messages/adminContact.routes.js';
 import adminRescueStationRoutes from './rescue-stations/adminRescueStation.routes.js';
+import adminAgentApplicationRoutes from './agent-applications/adminAgentApplication.routes.js';
+import adminSosRequestRoutes from './sos-requests/adminSosRequest.routes.js';
 
 const router = Router();
 
@@ -30,5 +32,7 @@ router.use('/tags', adminTagRoutes);
 router.use('/coupons', adminCouponRoutes);
 router.use('/contact-messages', adminContactRoutes);
 router.use('/rescue-stations', adminRescueStationRoutes);
+router.use('/agent-applications', adminAgentApplicationRoutes);
+router.use('/sos-requests', adminSosRequestRoutes);
 
 export default router;

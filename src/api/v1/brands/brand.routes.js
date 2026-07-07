@@ -7,7 +7,13 @@ import { success } from '../../../utils/apiResponse.js';
 const router = Router();
 
 /**
- * GET /brands — list all brands (cache-friendly, no pagination needed)
+ * @swagger
+ * /brands:
+ *   get:
+ *     tags: [Catalog]
+ *     summary: List all car brands (with vehicle counts)
+ *     responses:
+ *       200: { description: All brands }
  */
 router.get(
   '/',

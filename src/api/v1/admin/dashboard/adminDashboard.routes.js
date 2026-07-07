@@ -11,6 +11,23 @@ const router = Router();
 
 router.use(authenticate, requireRole(['ADMIN', 'OPERATOR']));
 
+/**
+ * @swagger
+ * /admin/dashboard:
+ *   get:
+ *     tags: [Admin - Dashboard]
+ *     summary: Dashboard KPIs (UC-52)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date }
+ *     responses:
+ *       200: { description: Revenue, bookings, users and vehicle KPIs }
+ */
 router.get('/', validate(dashboardQuerySchema, 'query'), adminDashboardController.kpis);
 
 export default router;
