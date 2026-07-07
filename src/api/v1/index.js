@@ -15,6 +15,8 @@ import couponRoutes from './coupons/coupon.routes.js';
 import walletRoutes from './wallet/wallet.routes.js';
 import addressRoutes from './me/addresses/address.routes.js';
 import notificationRoutes from './notifications/notification.routes.js';
+import contactRoutes from './contact/contact.routes.js';
+import roadsideStationRoutes from './roadside-stations/roadsideStation.routes.js';
 import adminRoutes from './admin/index.js';
 
 const router = Router();
@@ -42,9 +44,14 @@ router.get('/', (_req, res) =>
       '/me/wallet',
       '/me/wallet/transactions',
       '/me/wallet/topup',
+      '/contact-messages',
+      '/site-settings/contact',
+      '/roadside-stations',
       '/admin/vehicles',
       '/admin/vehicle-models',
       '/admin/bookings',
+      '/admin/contact-messages',
+      '/admin/rescue-stations',
     ],
   })
 );
@@ -63,6 +70,9 @@ router.use('/coupons', couponRoutes);
 router.use('/me/wallet', walletRoutes);
 router.use('/me/addresses', addressRoutes);
 router.use('/me/notifications', notificationRoutes);
+router.use('/roadside-stations', roadsideStationRoutes);
+// Contact router owns both /contact-messages and /site-settings/contact.
+router.use('/', contactRoutes);
 router.use('/me', userRoutes);
 router.use('/admin', adminRoutes);
 

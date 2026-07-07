@@ -704,6 +704,65 @@ async function main() {
   }
   console.log('  ✓ Site settings');
 
+  // 8b) Rescue / roadside stations (Day 37 / UC-31)
+  const rescueStations = [
+    {
+      name: 'Trạm cứu hộ OtoRent Quận 1',
+      city: 'Hồ Chí Minh',
+      district: 'Quận 1',
+      address: '12 Lê Duẩn, Bến Nghé, Quận 1, TP.HCM',
+      latitude: 10.7803,
+      longitude: 106.6994,
+      phone: '0901000001',
+      hours: '24/7',
+    },
+    {
+      name: 'Trạm cứu hộ OtoRent TP. Thủ Đức',
+      city: 'Hồ Chí Minh',
+      district: 'TP. Thủ Đức',
+      address: '52 Võ Văn Ngân, Linh Chiểu, TP. Thủ Đức, TP.HCM',
+      latitude: 10.8494,
+      longitude: 106.7537,
+      phone: '0901000002',
+      hours: '24/7',
+    },
+    {
+      name: 'Trạm cứu hộ OtoRent Tân Bình',
+      city: 'Hồ Chí Minh',
+      district: 'Tân Bình',
+      address: '203 Hoàng Văn Thụ, Phường 8, Tân Bình, TP.HCM',
+      latitude: 10.7981,
+      longitude: 106.6614,
+      phone: '0901000003',
+      hours: '06:00 - 22:00',
+    },
+    {
+      name: 'Trạm cứu hộ OtoRent Hà Nội - Cầu Giấy',
+      city: 'Hà Nội',
+      district: 'Cầu Giấy',
+      address: '144 Xuân Thủy, Dịch Vọng Hậu, Cầu Giấy, Hà Nội',
+      latitude: 21.0362,
+      longitude: 105.7827,
+      phone: '0901000004',
+      hours: '24/7',
+    },
+    {
+      name: 'Trạm cứu hộ OtoRent Đà Nẵng',
+      city: 'Đà Nẵng',
+      district: 'Hải Châu',
+      address: '35 Nguyễn Văn Linh, Hải Châu, Đà Nẵng',
+      latitude: 16.0603,
+      longitude: 108.2172,
+      phone: '0901000005',
+      hours: '24/7',
+    },
+  ];
+  for (const s of rescueStations) {
+    const existing = await prisma.rescueStation.findFirst({ where: { name: s.name } });
+    if (!existing) await prisma.rescueStation.create({ data: s });
+  }
+  console.log('  ✓ Rescue stations');
+
   // 9) Demo blog: categories, tags, posts (UC-21/22/25/26/27)
   const admin = await prisma.user.findUnique({ where: { phone: '0900000001' } });
 

@@ -11,6 +11,8 @@ import adminCouponRoutes from './coupons/adminCoupon.routes.js';
 import adminDashboardRoutes from './dashboard/adminDashboard.routes.js';
 import adminReportsRoutes from './reports/adminReports.routes.js';
 import adminSettingsRoutes from './settings/adminSettings.routes.js';
+import adminContactRoutes from './contact-messages/adminContact.routes.js';
+import adminRescueStationRoutes from './rescue-stations/adminRescueStation.routes.js';
 
 const router = Router();
 
@@ -26,5 +28,7 @@ router.use('/posts', adminPostRoutes);
 router.use('/post-categories', adminCategoryRoutes);
 router.use('/tags', adminTagRoutes);
 router.use('/coupons', adminCouponRoutes);
+router.use('/contact-messages', adminContactRoutes);
+router.use('/rescue-stations', adminRescueStationRoutes);
 
 export default router;
