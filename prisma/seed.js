@@ -226,7 +226,7 @@ async function main() {
   const sedanCat = await prisma.category.findUnique({ where: { slug: 'sedan' } });
   const suvCat = await prisma.category.findUnique({ where: { slug: 'suv' } });
   const sportCat = await prisma.category.findUnique({ where: { slug: 'the-thao' } });
-  const coupeCat = await prisma.category.findUnique({ where: { slug: 'coupe' } });
+  const _coupeCat = await prisma.category.findUnique({ where: { slug: 'coupe' } });
 
   const vehicleModels = [
     {
@@ -683,6 +683,17 @@ async function main() {
       label: 'LinkedIn',
     },
     { key: 'site_twitter', value: 'https://twitter.com/otorent', grp: 'social', label: 'Twitter' },
+    // Pricing config (Day 35 / UC-60) — read by pricing code instead of hardcoding.
+    { key: 'tax_rate', value: '10', grp: 'pricing', label: 'Thuế suất (%)' },
+    { key: 'deposit_default', value: '5000000', grp: 'pricing', label: 'Đặt cọc mặc định (VND)' },
+    {
+      key: 'dropoff_penalty',
+      value: '200000',
+      grp: 'pricing',
+      label: 'Phụ phí trả khác điểm (VND)',
+    },
+    { key: 'hourly_rate_ratio', value: '0.18', grp: 'pricing', label: 'Hệ số giá theo giờ' },
+    { key: 'with_driver_surcharge', value: '0.4', grp: 'pricing', label: 'Phụ phí tài xế' },
   ];
   for (const st of settings) {
     await prisma.siteSetting.upsert({

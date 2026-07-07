@@ -2,6 +2,7 @@
 import prisma from '../../../config/db.js';
 import { NotFoundError } from '../../../utils/apiError.js';
 import { buildCacheKey, cached } from '../../../utils/cache.js';
+import { settingsService } from '../../../services/settingsService.js';
 
 const LIST_CACHE_TTL = 300; // 5 minutes (§ Cache list theo querystring TTL 5 phút)
 
@@ -90,20 +91,18 @@ const listInclude = {
   images: { orderBy: { sortOrder: 'asc' }, take: 1 },
 };
 
-// Multipliers used to derive secondary rates from the base daily price.
-// Schema only stores `pricePerDay` / `pricePerMonth` / `depositAmount`, so the
-// hourly and with-driver rates are derived. Tune these in SiteSetting later.
-const HOURLY_RATE_RATIO = 0.18; // ~18% of daily price per hour
-const WITH_DRIVER_SURCHARGE = 0.4; // +40% on the daily price when a driver is included
-
 /**
  * Build the rate card returned in the car detail response.
  * Shape: { daily, hourly, with_driver_daily, monthly, currency }
+ *
+ * The hourly ratio and with-driver surcharge come from SiteSetting (pricing
+ * group) via settingsService — no longer hardcoded (Day 35, UC-60).
  */
-const buildRates = (car) => ({
+const buildRates = (car, pricing) => ({
   daily: car.pricePerDay,
-  hourly: Math.round((car.pricePerDay * HOURLY_RATE_RATIO) / 1000) * 1000,
-  with_driver_daily: Math.round((car.pricePerDay * (1 + WITH_DRIVER_SURCHARGE)) / 1000) * 1000,
+  hourly: Math.round((car.pricePerDay * pricing.hourlyRateRatio) / 1000) * 1000,
+  with_driver_daily:
+    Math.round((car.pricePerDay * (1 + pricing.withDriverSurcharge)) / 1000) * 1000,
   monthly: car.pricePerMonth ?? null,
   currency: 'VND',
 });
@@ -255,14 +254,17 @@ export const carService = {
     });
     if (!car) throw new NotFoundError('Vehicle');
 
-    const rating = await getRatingAggregate(car.id);
+    const [rating, pricing] = await Promise.all([
+      getRatingAggregate(car.id),
+      settingsService.getPricingConfig(),
+    ]);
 
     return {
       ...car,
       thumbnailUrl: car.thumbnailUrl || car.images?.[0]?.url || null,
       vehicleModel: car.model || null,
-      deposit: car.depositAmount,
-      rates: buildRates(car),
+      deposit: car.depositAmount ?? pricing.depositDefault,
+      rates: buildRates(car, pricing),
       rating: rating.avg, // numeric avg from reviews (0 when none)
       reviewCount: rating.count, // live count, consistent with the list endpoint
     };
