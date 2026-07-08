@@ -32,7 +32,7 @@ const EXTERNAL_METHODS = ['VNPAY', 'MOMO', 'ZALOPAY'];
  *   after pickup → not cancelable (caller throws 422)
  * Returns null when the pickup time has already passed.
  */
-const computeRefundPercent = (pickupAt, now = new Date()) => {
+export const computeRefundPercent = (pickupAt, now = new Date()) => {
   const hoursToPickup = (new Date(pickupAt).getTime() - now.getTime()) / (1000 * 60 * 60);
   if (hoursToPickup < 0) return null;
   if (hoursToPickup >= 48) return 100;
@@ -41,7 +41,7 @@ const computeRefundPercent = (pickupAt, now = new Date()) => {
 };
 
 /** Pick the settled BOOKING payment to refund against (most recent SUCCESS). */
-const findRefundablePayment = (payments = []) =>
+export const findRefundablePayment = (payments = []) =>
   payments
     .filter((p) => p.type === 'BOOKING' && p.status === 'SUCCESS')
     .sort((a, b) => new Date(b.paidAt ?? b.createdAt) - new Date(a.paidAt ?? a.createdAt))[0] ?? null;
@@ -66,7 +66,7 @@ const ACTIVE_STATUSES = [
 
 const toIso = (d) => new Date(d).toISOString();
 
-const calcTotalDays = (pickupAt, returnAt) => {
+export const calcTotalDays = (pickupAt, returnAt) => {
   const ms = new Date(returnAt) - new Date(pickupAt);
   return Math.max(1, Math.ceil(ms / (1000 * 60 * 60 * 24)));
 };
@@ -75,7 +75,7 @@ const calcTotalDays = (pickupAt, returnAt) => {
  * Recompute the price breakdown from raw inputs.
  * Insurance is percent-based on the rental base price (InsurancePlan.ratePercent).
  */
-const computeBreakdown = ({ pricePerDay, totalDays, insurancePlan, couponDiscount = 0 }) => {
+export const computeBreakdown = ({ pricePerDay, totalDays, insurancePlan, couponDiscount = 0 }) => {
   const perDay = Number(pricePerDay);
   const basePrice = perDay * totalDays;
   const ratePercent = insurancePlan ? Number(insurancePlan.ratePercent) : 0;

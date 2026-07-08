@@ -7,7 +7,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
-import env from './config/env.js';
+import env, { isProd } from './config/env.js';
 import logger from './config/logger.js';
 import swaggerSpec from './config/swagger.js';
 import v1Router from './api/v1/index.js';
@@ -20,11 +20,48 @@ const app = express();
 app.set('trust proxy', 1);
 
 // ── Global middleware ─────────────────────────────────────────────────
-app.use(helmet());
-app.use(cors({
-  origin: env.CORS_ORIGIN ? env.CORS_ORIGIN.split(',').map(s => s.trim()) : '*',
-  credentials: true,
-}));
+// Helmet with a CSP that still lets swagger-ui (dev) load its inline assets.
+// connectSrc is opened to the configured FE origins so the docs "Try it out"
+// and any same-page fetches work; everything else stays on 'self'.
+const allowedOrigins = (env.CORS_ORIGIN || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        defaultSrc: ["'self'"],
+        // swagger-ui injects inline <style>/<script> and uses data: images.
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: ["'self'", ...allowedOrigins],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: isProd ? [] : null,
+      },
+    },
+    // Allow cross-origin loading of static /uploads assets by the FE.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  })
+);
+
+// CORS: strict allow-list. With credentials enabled the spec forbids '*', so a
+// request from an unknown origin is simply not granted CORS headers (the
+// browser then blocks it) rather than silently allowing every site.
+app.use(
+  cors({
+    origin(origin, cb) {
+      // Non-browser clients (curl, server-to-server, same-origin) send no Origin.
+      if (!origin) return cb(null, true);
+      if (allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(null, false);
+    },
+    credentials: true,
+  })
+);
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

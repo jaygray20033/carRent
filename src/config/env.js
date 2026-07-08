@@ -22,6 +22,8 @@ const env = {
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET || 'dev_refresh_secret',
   JWT_ACCESS_EXPIRES: process.env.JWT_ACCESS_EXPIRES || '15m',
   JWT_REFRESH_EXPIRES: process.env.JWT_REFRESH_EXPIRES || '7d',
+  JWT_ISSUER: process.env.JWT_ISSUER || 'otorent-api',
+  JWT_AUDIENCE: process.env.JWT_AUDIENCE || 'otorent-app',
 
   // Bcrypt
   BCRYPT_SALT_ROUNDS: parseInt(process.env.BCRYPT_SALT_ROUNDS, 10) || 12,
@@ -57,6 +59,22 @@ const env = {
 // Named helper exports (used by config/db.js and other modules)
 export const isProd = env.NODE_ENV === 'production';
 export const isDev = env.NODE_ENV === 'development';
+
+// Fail fast in production if JWT secrets are weak or still on their dev defaults.
+// A 32+ char random secret is the minimum for HS256 (§8 security audit).
+if (isProd) {
+  const weak = [
+    ['JWT_ACCESS_SECRET', env.JWT_ACCESS_SECRET],
+    ['JWT_REFRESH_SECRET', env.JWT_REFRESH_SECRET],
+  ].filter(([, v]) => !v || v.length < 32 || v.startsWith('dev_'));
+  if (weak.length) {
+    throw new Error(
+      `Insecure JWT secret(s) in production: ${weak
+        .map(([k]) => k)
+        .join(', ')}. Set random values of at least 32 characters.`
+    );
+  }
+}
 
 export { env };
 export default env;

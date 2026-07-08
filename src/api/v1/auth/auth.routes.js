@@ -4,6 +4,7 @@ import { authController } from './auth.controller.js';
 import { asyncHandler } from '../../../middlewares/asyncHandler.js';
 import { validate } from '../../../middlewares/validate.middleware.js';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
+import { rateLimit } from '../../../middlewares/rateLimit.middleware.js';
 import {
   registerSchema,
   loginSchema,
@@ -15,6 +16,31 @@ import {
 } from './auth.validator.js';
 
 const router = Router();
+
+// ── Rate limiters (Day 41 §8, Redis-backed, per-IP) ──────────────────────
+// Blanket limiter for the whole auth surface: 10 req/min/IP.
+const authLimiter = rateLimit({
+  max: 10,
+  windowSec: 60,
+  keyPrefix: 'auth',
+  message: 'Quá nhiều yêu cầu xác thực. Vui lòng thử lại sau ít phút.',
+});
+// Brute-force guard on login: 5 req/15m/IP.
+const loginLimiter = rateLimit({
+  max: 5,
+  windowSec: 900,
+  keyPrefix: 'auth:login',
+  message: 'Bạn đã thử đăng nhập quá nhiều lần. Vui lòng thử lại sau 15 phút.',
+});
+// Password-reset abuse guard: 3 req/h/IP.
+const forgotLimiter = rateLimit({
+  max: 3,
+  windowSec: 3600,
+  keyPrefix: 'auth:forgot',
+  message: 'Bạn đã yêu cầu đặt lại mật khẩu quá nhiều lần. Vui lòng thử lại sau một giờ.',
+});
+
+router.use(authLimiter);
 
 /**
  * @swagger
@@ -136,7 +162,7 @@ router.post('/register', validate(registerSchema), asyncHandler(authController.r
  *           application/json:
  *             schema: { $ref: '#/components/schemas/ApiError' }
  */
-router.post('/login', validate(loginSchema), asyncHandler(authController.login));
+router.post('/login', loginLimiter, validate(loginSchema), asyncHandler(authController.login));
 
 /**
  * @swagger
@@ -230,6 +256,7 @@ router.post('/resend-otp', validate(resendOtpSchema), asyncHandler(authControlle
 // UC-04 — Forgot / Reset password
 router.post(
   '/forgot-password',
+  forgotLimiter,
   validate(forgotPasswordSchema),
   asyncHandler(authController.forgotPassword)
 );

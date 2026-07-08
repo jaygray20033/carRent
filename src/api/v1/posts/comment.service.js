@@ -7,6 +7,7 @@
 import prisma from '../../../config/db.js';
 import { paginatedResponse } from '../../../utils/pagination.js';
 import { NotFoundError } from '../../../utils/apiError.js';
+import { sanitizeText } from '../../../utils/sanitize.js';
 
 const publicSelect = {
   id: true,
@@ -30,7 +31,7 @@ export const commentService = {
     if (!post) throw new NotFoundError('Post');
 
     return prisma.comment.create({
-      data: { postId: id, userId, content: content.trim(), status: 'PENDING' },
+      data: { postId: id, userId, content: sanitizeText(content), status: 'PENDING' },
       select: publicSelect,
     });
   },

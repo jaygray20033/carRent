@@ -5,6 +5,7 @@
 //   update — admin, set status + reply note
 import prisma from '../../../config/db.js';
 import { NotFoundError } from '../../../utils/apiError.js';
+import { sanitizeText } from '../../../utils/sanitize.js';
 
 const STATUSES = ['NEW', 'READ', 'REPLIED'];
 
@@ -13,11 +14,11 @@ export const contactService = {
   async create(data, ipAddress) {
     return prisma.contactMessage.create({
       data: {
-        name: data.name,
+        name: sanitizeText(data.name),
         email: data.email,
         phone: data.phone || null,
-        subject: data.subject || null,
-        message: data.message,
+        subject: data.subject ? sanitizeText(data.subject) : null,
+        message: sanitizeText(data.message),
         ipAddress: ipAddress || null,
       },
     });

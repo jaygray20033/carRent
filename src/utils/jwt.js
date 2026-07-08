@@ -8,7 +8,11 @@ import { env } from '../config/env.js';
  * @param {object} payload - { sub, role, ... }
  */
 export const signAccessToken = (payload) =>
-  jwt.sign(payload, env.JWT_ACCESS_SECRET, { expiresIn: env.JWT_ACCESS_EXPIRES });
+  jwt.sign(payload, env.JWT_ACCESS_SECRET, {
+    expiresIn: env.JWT_ACCESS_EXPIRES,
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
+  });
 
 /**
  * Sign a refresh token (default 7d). A unique `jti` is embedded so the token
@@ -20,13 +24,19 @@ export const signRefreshToken = (payload) => {
   const jti = randomUUID();
   const token = jwt.sign({ ...payload, jti }, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_EXPIRES,
+    issuer: env.JWT_ISSUER,
+    audience: env.JWT_AUDIENCE,
   });
   return { token, jti };
 };
 
-export const verifyAccessToken = (token) => jwt.verify(token, env.JWT_ACCESS_SECRET);
+const verifyOpts = { issuer: env.JWT_ISSUER, audience: env.JWT_AUDIENCE };
 
-export const verifyRefreshToken = (token) => jwt.verify(token, env.JWT_REFRESH_SECRET);
+export const verifyAccessToken = (token) =>
+  jwt.verify(token, env.JWT_ACCESS_SECRET, verifyOpts);
+
+export const verifyRefreshToken = (token) =>
+  jwt.verify(token, env.JWT_REFRESH_SECRET, verifyOpts);
 
 /** Decode without verifying signature (used to read exp/jti when needed). */
 export const decodeToken = (token) => jwt.decode(token);
