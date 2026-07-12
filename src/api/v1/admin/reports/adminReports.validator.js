@@ -34,4 +34,16 @@ export const topVehiclesQuerySchema = z
   })
   .superRefine(endAfterStart);
 
-export default { revenueQuerySchema, bookingQuerySchema, topVehiclesQuerySchema };
+export const b2bVsC2cQuerySchema = z.object({
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, 'month must be YYYY-MM')
+    .optional(),
+});
+
+export default {
+  revenueQuerySchema,
+  bookingQuerySchema,
+  topVehiclesQuerySchema,
+  b2bVsC2cQuerySchema,
+};

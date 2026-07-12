@@ -54,6 +54,12 @@ const env = {
   TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID || '',
   TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN || '',
   TWILIO_FROM: process.env.TWILIO_FROM || '',
+
+  // Rate limiting — set RATE_LIMIT_DISABLED=true in E2E/CI to let the test
+  // suite hammer /auth/login from a single IP without tripping the limiter.
+  // Force-ignored when NODE_ENV=production (see the guard below) so the limiter
+  // is always live in prod regardless of what the environment says.
+  RATE_LIMIT_DISABLED: process.env.RATE_LIMIT_DISABLED === 'true',
 };
 
 // Named helper exports (used by config/db.js and other modules)

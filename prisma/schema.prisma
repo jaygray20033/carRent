@@ -57,6 +57,7 @@ model User {
   addresses          Address[]
   agentApplications  AgentApplication[]
   sosRequests        SosRequest[]
+  corporateEmployee  CorporateEmployee?
 
   @@map("users")
 }
@@ -178,12 +179,13 @@ model Vehicle {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  brand    Brand          @relation(fields: [brandId], references: [id])
-  model    VehicleModel?  @relation(fields: [modelId], references: [id])
-  category Category?     @relation(fields: [categoryId], references: [id])
-  station  Station?      @relation(fields: [stationId], references: [id])
-  images   VehicleImage[]
-  bookings Booking[]
+  brand             Brand              @relation(fields: [brandId], references: [id])
+  model             VehicleModel?      @relation(fields: [modelId], references: [id])
+  category          Category?          @relation(fields: [categoryId], references: [id])
+  station           Station?           @relation(fields: [stationId], references: [id])
+  images            VehicleImage[]
+  bookings          Booking[]
+  corporateBookings CorporateBooking[]
 
   @@map("vehicles")
 }
@@ -298,6 +300,12 @@ model Booking {
   sosRequests        SosRequest[] @relation("bookingSos")
   sosReplacementFor  SosRequest[] @relation("replacementBooking")
 
+  // Overlap/availability check (car.service, booking.service) filters by
+  // vehicle then the pickup/return window — covers UC-14 conflict detection.
+  @@index([vehicleId, pickupAt, returnAt])
+  // "My bookings" list is filtered by user + status.
+  @@index([userId, status])
+
   @@map("bookings")
 }
 
@@ -337,6 +345,8 @@ model Payment {
   user    User?    @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  // Payment lookups by booking (refund search, receipt, status polling).
+  @@index([bookingId])
   @@map("payments")
 }
 
@@ -628,4 +638,172 @@ model SosRequest {
   @@index([userId])
   @@index([bookingId])
   @@map("sos_requests")
+}
+
+// ─── B2B: Corporate Clients (UC-61+) ────────────────────────────────
+// Default AssetHub price table lives in priceConfig (JSON string).
+model CorporateClient {
+  id              Int       @id @default(autoincrement())
+  name            String
+  taxCode         String    @unique @map("tax_code")
+  address         String?   @db.Text
+  contactName     String?   @map("contact_name")
+  contactPhone    String?   @map("contact_phone")
+  contactEmail    String?   @map("contact_email")
+  contractRef     String?   @map("contract_ref")
+  contractStart   DateTime? @map("contract_start")
+  contractEnd     DateTime? @map("contract_end")
+  creditLimit     Float     @default(0) @map("credit_limit")
+  paymentTermDays Int       @default(0) @map("payment_term_days")
+  // JSON: { "4_5_seat": { half_day_0_100km, ... }, "7_seat": {...}, "16_seat": {...} }
+  priceConfig     String?   @map("price_config") @db.Text
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  employees   CorporateEmployee[]
+  bookings    CorporateBooking[]
+  settlements CorporateSettlement[]
+
+  @@index([isActive])
+  @@map("corporate_clients")
+}
+
+// ─── B2B: Corporate Employees (UC-62/63) ────────────────────────────
+// userId is optional until invite is accepted (pending invite for new phone/email).
+model CorporateEmployee {
+  id              Int       @id @default(autoincrement())
+  corporateId     Int       @map("corporate_id")
+  userId          Int?      @unique @map("user_id")
+  employeeCode    String?   @map("employee_code")
+  department      String?
+  isAdmin         Boolean   @default(false) @map("is_admin")
+  isActive        Boolean   @default(false) @map("is_active") // false until invite accepted
+  invitedPhone    String?   @map("invited_phone")
+  invitedEmail    String?   @map("invited_email")
+  inviteToken     String?   @unique @map("invite_token") @db.VarChar(128)
+  inviteExpiresAt DateTime? @map("invite_expires_at")
+  inviteUsedAt    DateTime? @map("invite_used_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  corporate CorporateClient    @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  user      User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bookings  CorporateBooking[]
+
+  @@index([corporateId])
+  @@index([inviteToken])
+  @@map("corporate_employees")
+}
+
+// ─── B2B: Corporate Bookings (UC-64+) ───────────────────────────────
+model CorporateBooking {
+  id                        Int                    @id @default(autoincrement())
+  corporateId               Int                    @map("corporate_id")
+  employeeId                Int                    @map("employee_id")
+  vehicleId                 Int?                   @map("vehicle_id")
+  driverId                  Int?                   @map("driver_id")
+  purpose                   String?                @db.Text
+  pickupAt                  DateTime               @map("pickup_at")
+  returnAt                  DateTime               @map("return_at")
+  pickupAddress             String                 @map("pickup_address") @db.Text
+  dropoffAddress            String                 @map("dropoff_address") @db.Text
+  estimatedKm               Int?                   @map("estimated_km")
+  status                    CorporateBookingStatus @default(PENDING)
+  basePrice                 Float                  @map("base_price")
+  rentalType                String                 @map("rental_type") // half_day | full_day
+  vehicleType               String                 @map("vehicle_type") // 4_5_seat | 7_seat | 16_seat
+  completedAt               DateTime?              @map("completed_at")
+  actualKm                  Int?                   @map("actual_km")
+  employeeNote              String?                @map("employee_note") @db.Text
+  driverNote                String?                @map("driver_note") @db.Text
+  confirmedByEmployee       Boolean                @default(false) @map("confirmed_by_employee")
+  confirmedByCorporateAdmin Boolean                @default(false) @map("confirmed_by_corporate_admin")
+  confirmedByOtorent        Boolean                @default(false) @map("confirmed_by_otorent")
+  settlementId              Int?                   @map("settlement_id")
+  finalAmount               Float?                 @map("final_amount")
+  rejectReason              String?                @map("reject_reason") @db.Text
+  createdAt                 DateTime               @default(now()) @map("created_at")
+  updatedAt                 DateTime               @updatedAt @map("updated_at")
+
+  corporate  CorporateClient      @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  employee   CorporateEmployee    @relation(fields: [employeeId], references: [id])
+  vehicle    Vehicle?             @relation(fields: [vehicleId], references: [id])
+  expenses   TripExpense[]
+  settlement CorporateSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+
+  @@index([corporateId, status])
+  @@index([employeeId])
+  @@index([settlementId])
+  @@map("corporate_bookings")
+}
+
+enum CorporateBookingStatus {
+  PENDING
+  APPROVED
+  IN_PROGRESS
+  PENDING_CONFIRM
+  CONFIRMED
+  SETTLED
+  CANCELLED
+}
+
+// ─── B2B: Trip expenses (UC-66+) ────────────────────────────────────
+model TripExpense {
+  id                 Int             @id @default(autoincrement())
+  corporateBookingId Int             @map("corporate_booking_id")
+  type               TripExpenseType
+  amount             Float
+  description        String?         @db.Text
+  receiptUrl         String?         @map("receipt_url")
+  recordedBy         String          @map("recorded_by") // driver | employee
+  recordedAt         DateTime        @default(now()) @map("recorded_at")
+  // null = pending review, true = approved, false = rejected
+  approvedByAdmin    Boolean?        @map("approved_by_admin")
+
+  booking CorporateBooking @relation(fields: [corporateBookingId], references: [id], onDelete: Cascade)
+
+  @@index([corporateBookingId])
+  @@map("trip_expenses")
+}
+
+enum TripExpenseType {
+  TOLL_ROAD
+  PARKING
+  OVERTIME
+  EXTRA_KM
+  ONE_WAY_KM
+  OVERNIGHT
+  OTHER
+}
+
+// ─── B2B: Settlements (UC-69+) ──────────────────────────────────────
+model CorporateSettlement {
+  id              Int              @id @default(autoincrement())
+  corporateId     Int              @map("corporate_id")
+  periodStart     DateTime         @map("period_start")
+  periodEnd       DateTime         @map("period_end")
+  totalBaseAmount Float            @map("total_base_amount")
+  totalExpenses   Float            @map("total_expenses")
+  totalVat        Float            @map("total_vat")
+  totalAmount     Float            @map("total_amount")
+  status          SettlementStatus @default(DRAFT)
+  invoiceRef      String?          @map("invoice_ref")
+  note            String?          @db.Text
+  createdAt       DateTime         @default(now()) @map("created_at")
+  confirmedAt     DateTime?        @map("confirmed_at")
+
+  corporate CorporateClient    @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  bookings  CorporateBooking[]
+
+  @@index([corporateId, status])
+  @@map("corporate_settlements")
+}
+
+enum SettlementStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  PAID
+  DISPUTED
 }

@@ -194,6 +194,102 @@ export const adminReportsService = {
 
     return { range: { from: start.toISOString(), to: end.toISOString() }, items };
   },
+
+  /**
+   * UC-73 — B2B vs C2C revenue comparison for a month (default: current).
+   * B2B = corporate bookings (CONFIRMED/SETTLED) by finalAmount|basePrice in month.
+   * C2C = SUCCESS payments (BOOKING type) paidAt in month — never mixed into B2B.
+   */
+  async b2bVsC2c({ month } = {}) {
+    let y;
+    let m;
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      [y, m] = month.split('-').map(Number);
+    } else {
+      const now = new Date();
+      y = now.getUTCFullYear();
+      m = now.getUTCMonth() + 1;
+    }
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 1));
+    const monthKey = `${y}-${String(m).padStart(2, '0')}`;
+
+    // B2B: confirmed/settled corporate trips whose pickup falls in the month
+    const b2bBookings = await prisma.corporateBooking.findMany({
+      where: {
+        pickupAt: { gte: start, lt: end },
+        status: { in: ['CONFIRMED', 'SETTLED'] },
+      },
+      select: {
+        id: true,
+        corporateId: true,
+        basePrice: true,
+        finalAmount: true,
+        status: true,
+        corporate: { select: { id: true, name: true } },
+      },
+    });
+
+    let b2bTotal = 0;
+    const byCorporateMap = new Map();
+    for (const b of b2bBookings) {
+      const amt = Math.round(Number(b.finalAmount ?? b.basePrice ?? 0));
+      b2bTotal += amt;
+      const row = byCorporateMap.get(b.corporateId) || {
+        corporateId: b.corporateId,
+        name: b.corporate?.name || `#${b.corporateId}`,
+        trips: 0,
+        revenue: 0,
+      };
+      row.trips += 1;
+      row.revenue += amt;
+      byCorporateMap.set(b.corporateId, row);
+    }
+
+    // C2C: retail SUCCESS payments linked to Booking (not TOPUP)
+    const c2cAgg = await prisma.payment.aggregate({
+      _sum: { amount: true },
+      _count: { _all: true },
+      where: {
+        status: 'SUCCESS',
+        type: 'BOOKING',
+        paidAt: { gte: start, lt: end },
+      },
+    });
+    const c2cTotal = Math.round(Number(c2cAgg._sum.amount || 0));
+    const c2cCount = c2cAgg._count._all;
+
+    // Status breakdown for B2B (all non-cancelled in month — broader view)
+    const b2bStatusGroups = await prisma.corporateBooking.groupBy({
+      by: ['status'],
+      _count: { _all: true },
+      where: {
+        pickupAt: { gte: start, lt: end },
+      },
+    });
+
+    const grandTotal = b2bTotal + c2cTotal;
+    return {
+      month: monthKey,
+      range: { from: start.toISOString(), to: end.toISOString() },
+      b2b: {
+        total: b2bTotal,
+        trips: b2bBookings.length,
+        byCorporate: [...byCorporateMap.values()].sort((a, b) => b.revenue - a.revenue),
+        byStatus: b2bStatusGroups.map((g) => ({
+          status: g.status,
+          count: g._count._all,
+        })),
+      },
+      c2c: {
+        total: c2cTotal,
+        payments: c2cCount,
+      },
+      grandTotal,
+      b2bShare: grandTotal > 0 ? Math.round((b2bTotal / grandTotal) * 10000) / 100 : 0,
+      c2cShare: grandTotal > 0 ? Math.round((c2cTotal / grandTotal) * 10000) / 100 : 0,
+    };
+  },
 };
 
 export default adminReportsService;

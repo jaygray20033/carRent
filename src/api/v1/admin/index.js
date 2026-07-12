@@ -15,6 +15,9 @@ import adminContactRoutes from './contact-messages/adminContact.routes.js';
 import adminRescueStationRoutes from './rescue-stations/adminRescueStation.routes.js';
 import adminAgentApplicationRoutes from './agent-applications/adminAgentApplication.routes.js';
 import adminSosRequestRoutes from './sos-requests/adminSosRequest.routes.js';
+import adminCorporateClientRoutes from './corporate-clients/adminCorporateClient.routes.js';
+import adminCorporateBookingRoutes from './corporate-bookings/adminCorporateBooking.routes.js';
+import adminSettlementRoutes from './settlements/adminSettlement.routes.js';
 
 const router = Router();
 
@@ -34,5 +37,8 @@ router.use('/contact-messages', adminContactRoutes);
 router.use('/rescue-stations', adminRescueStationRoutes);
 router.use('/agent-applications', adminAgentApplicationRoutes);
 router.use('/sos-requests', adminSosRequestRoutes);
+router.use('/corporate-clients', adminCorporateClientRoutes);
+router.use('/corporate-bookings', adminCorporateBookingRoutes);
+router.use('/settlements', adminSettlementRoutes);
 
 export default router;

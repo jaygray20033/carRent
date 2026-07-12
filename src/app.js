@@ -5,6 +5,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import morgan from 'morgan';
 import swaggerUi from 'swagger-ui-express';
 import env, { isProd } from './config/env.js';
@@ -62,6 +63,8 @@ app.use(
     credentials: true,
   })
 );
+// gzip response compression — reduces payload size on JSON list endpoints.
+app.use(compression());
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

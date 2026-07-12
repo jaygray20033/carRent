@@ -5,7 +5,7 @@ import { Worker } from 'bullmq';
 import { bullConnection } from '../integrations/redis.js';
 import { postService } from '../api/v1/posts/post.service.js';
 
-async function processFlushPostViews() {
+export async function processFlushPostViews() {
   console.log(`[Worker:flush-post-views] Running at ${new Date().toISOString()}`);
   const result = await postService.flushViewCounters();
   console.log(`[Worker:flush-post-views] Flushed ${result.flushed} post(s)`);

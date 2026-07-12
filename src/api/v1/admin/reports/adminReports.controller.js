@@ -46,6 +46,12 @@ export const adminReportsController = {
     const data = await adminReportsService.topVehicles({ from, to, limit });
     return success(res, data, 'Top vehicles report');
   }),
+
+  // GET /admin/reports/b2b-vs-c2c?month=YYYY-MM  (UC-73)
+  b2bVsC2c: asyncHandler(async (req, res) => {
+    const data = await adminReportsService.b2bVsC2c({ month: req.query.month });
+    return success(res, data, 'B2B vs C2C revenue report');
+  }),
 };
 
 export default adminReportsController;

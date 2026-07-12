@@ -19,7 +19,7 @@ const fmtMoney = (n) => Number(n || 0).toLocaleString('vi-VN');
 const fmtDate = (d) =>
   d ? new Date(d).toLocaleString('vi-VN', { dateStyle: 'medium', timeStyle: 'short' }) : '';
 
-async function handleBookingConfirmed({ bookingId, channels = ['email'] }) {
+export async function handleBookingConfirmed({ bookingId, channels = ['email'] }) {
   const booking = await prisma.booking.findUnique({
     where: { id: Number(bookingId) },
     include: {
@@ -64,7 +64,7 @@ async function handleBookingConfirmed({ bookingId, channels = ['email'] }) {
   }
 }
 
-async function handleBookingCancelled({ bookingId, channels = ['email'] }) {
+export async function handleBookingCancelled({ bookingId, channels = ['email'] }) {
   const booking = await prisma.booking.findUnique({
     where: { id: Number(bookingId) },
     include: { user: true },
@@ -88,37 +88,38 @@ async function handleBookingCancelled({ bookingId, channels = ['email'] }) {
   }
 }
 
+export async function processNotificationJob(job) {
+  logger.info(`[Worker:notification] ${job.name} ${JSON.stringify(job.data)}`);
+
+  switch (job.name) {
+    case 'booking-confirmed':
+      await handleBookingConfirmed(job.data);
+      break;
+
+    case 'booking-cancelled':
+      await handleBookingCancelled(job.data);
+      break;
+
+    case 'send-email':
+      await sendEmail(job.data);
+      break;
+
+    case 'send-sms':
+      await sendSms(job.data);
+      break;
+
+    default:
+      logger.warn(`[Worker:notification] Unknown job type: ${job.name}`);
+  }
+
+  return { processed: true };
+}
+
 export function createNotificationWorker() {
-  const worker = new Worker(
-    'notificationQueue',
-    async (job) => {
-      logger.info(`[Worker:notification] ${job.name} ${JSON.stringify(job.data)}`);
-
-      switch (job.name) {
-        case 'booking-confirmed':
-          await handleBookingConfirmed(job.data);
-          break;
-
-        case 'booking-cancelled':
-          await handleBookingCancelled(job.data);
-          break;
-
-        case 'send-email':
-          await sendEmail(job.data);
-          break;
-
-        case 'send-sms':
-          await sendSms(job.data);
-          break;
-
-        default:
-          logger.warn(`[Worker:notification] Unknown job type: ${job.name}`);
-      }
-
-      return { processed: true };
-    },
-    { connection: bullConnection, concurrency: 5 }
-  );
+  const worker = new Worker('notificationQueue', processNotificationJob, {
+    connection: bullConnection,
+    concurrency: 5,
+  });
 
   worker.on('completed', (job) => {
     logger.info(`[Worker:notification] Job ${job.name} completed`);

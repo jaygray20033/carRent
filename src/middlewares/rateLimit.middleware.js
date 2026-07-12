@@ -3,7 +3,13 @@
 // Redis is the noop stub (REDIS_URL empty) — see integrations/redis.js.
 import { redis } from '../integrations/redis.js';
 import logger from '../config/logger.js';
+import { env, isProd } from '../config/env.js';
 import { TooManyRequestsError } from '../utils/apiError.js';
+
+// E2E/CI escape hatch: disable the limiter when RATE_LIMIT_DISABLED=true so the
+// test suite can log in repeatedly from one IP. Never honoured in production —
+// isProd wins so the limiter is always live there.
+const DISABLED = env.RATE_LIMIT_DISABLED && !isProd;
 
 /**
  * @param {object} opts
@@ -13,6 +19,7 @@ import { TooManyRequestsError } from '../utils/apiError.js';
  * @param {string} [opts.message] - error message on limit hit
  */
 export const rateLimit = ({ max, windowSec, keyPrefix, message }) => async (req, _res, next) => {
+  if (DISABLED) return next();
   try {
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const key = `ratelimit:${keyPrefix}:${ip}`;

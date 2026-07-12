@@ -3,6 +3,7 @@
 import { Router } from 'express';
 import { validate } from '../../../middlewares/validate.middleware.js';
 import { rateLimit } from '../../../middlewares/rateLimit.middleware.js';
+import { publicCache } from '../../../middlewares/cacheControl.middleware.js';
 import { contactController } from './contact.controller.js';
 import { createContactSchema } from './contact.validator.js';
 
@@ -53,6 +54,11 @@ router.post(
  *     responses:
  *       200: { description: Contact info }
  */
-router.get('/site-settings/contact', contactController.publicContact);
+// Contact info changes rarely — cache aggressively (10 min shared / 5 min browser).
+router.get(
+  '/site-settings/contact',
+  publicCache({ maxAge: 300, sMaxAge: 600 }),
+  contactController.publicContact
+);
 
 export default router;

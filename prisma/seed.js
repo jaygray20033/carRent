@@ -1029,6 +1029,129 @@ async function main() {
   }
   console.log('  ✓ Coupons');
 
+  // B2B — 1 test company + 2 employees + default AssetHub price table
+  const DEFAULT_PRICE_CONFIG = JSON.stringify({
+    '4_5_seat': {
+      half_day_0_100km: 600000,
+      half_day_100_150km: 800000,
+      full_day_100_150km: 1000000,
+      full_day_150_200km: 1200000,
+    },
+    '7_seat': {
+      half_day_0_100km: 700000,
+      half_day_100_150km: 1000000,
+      full_day_100_150km: 1100000,
+      full_day_150_200km: 1300000,
+    },
+    '16_seat': {
+      half_day_0_100km: 800000,
+      half_day_100_150km: 1200000,
+      full_day_100_150km: 1300000,
+      full_day_150_200km: 1500000,
+    },
+  });
+
+  const corporate = await prisma.corporateClient.upsert({
+    where: { taxCode: '0312345678' },
+    update: {
+      priceConfig: DEFAULT_PRICE_CONFIG,
+      isActive: true,
+      contractRef: 'HĐ-2026/CCDV',
+    },
+    create: {
+      name: 'AssetHub',
+      taxCode: '0312345678',
+      address: 'Quận 1, TP.HCM',
+      contactName: 'Nguyễn Văn A',
+      contactPhone: '0909000111',
+      contactEmail: 'ops@assethub.vn',
+      contractRef: 'HĐ-2026/CCDV',
+      contractStart: new Date('2026-01-01'),
+      contractEnd: new Date('2026-12-31'),
+      creditLimit: 50000000,
+      paymentTermDays: 30,
+      priceConfig: DEFAULT_PRICE_CONFIG,
+      isActive: true,
+    },
+  });
+
+  const corpAdminHash = await bcrypt.hash('CorpAdmin@123', saltRounds);
+  const corpAdminUser = await prisma.user.upsert({
+    where: { phone: '0909000222' },
+    update: {},
+    create: {
+      roleId: customerRole.id,
+      fullName: 'Corporate Admin AssetHub',
+      phone: '0909000222',
+      email: 'corp-admin@assethub.vn',
+      passwordHash: corpAdminHash,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+      phoneVerifiedAt: new Date(),
+    },
+  });
+
+  const corpEmpHash = await bcrypt.hash('CorpEmp@123', saltRounds);
+  const corpEmpUser = await prisma.user.upsert({
+    where: { phone: '0909000333' },
+    update: {},
+    create: {
+      roleId: customerRole.id,
+      fullName: 'Nhân viên AssetHub',
+      phone: '0909000333',
+      email: 'employee@assethub.vn',
+      passwordHash: corpEmpHash,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+      phoneVerifiedAt: new Date(),
+    },
+  });
+
+  await prisma.corporateEmployee.upsert({
+    where: { userId: corpAdminUser.id },
+    update: {
+      corporateId: corporate.id,
+      isAdmin: true,
+      isActive: true,
+      department: 'Operations',
+      employeeCode: 'AH-ADMIN-01',
+    },
+    create: {
+      corporateId: corporate.id,
+      userId: corpAdminUser.id,
+      isAdmin: true,
+      isActive: true,
+      department: 'Operations',
+      employeeCode: 'AH-ADMIN-01',
+      invitedPhone: corpAdminUser.phone,
+      invitedEmail: corpAdminUser.email,
+      inviteUsedAt: new Date(),
+    },
+  });
+
+  await prisma.corporateEmployee.upsert({
+    where: { userId: corpEmpUser.id },
+    update: {
+      corporateId: corporate.id,
+      isAdmin: false,
+      isActive: true,
+      department: 'Sales',
+      employeeCode: 'AH-EMP-01',
+    },
+    create: {
+      corporateId: corporate.id,
+      userId: corpEmpUser.id,
+      isAdmin: false,
+      isActive: true,
+      department: 'Sales',
+      employeeCode: 'AH-EMP-01',
+      invitedPhone: corpEmpUser.phone,
+      invitedEmail: corpEmpUser.email,
+      inviteUsedAt: new Date(),
+    },
+  });
+  console.log('  ✓ B2B Corporate (AssetHub + 2 employees + default price config)');
+
   console.log('\n✅ Seed done.');
 }
 

@@ -192,7 +192,7 @@ export const authService = {
       'EX',
       OTP_TTL
     );
-    await enqueueSendOtp({ to: phone, code, purpose: 'REGISTER', ttl: OTP_TTL });
+    await enqueueSendOtp({ to: phone, code, purpose: 'REGISTER', ttl: OTP_TTL, email: cleanEmail });
 
     return {
       user: sanitizeUser(user),

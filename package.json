@@ -27,6 +27,7 @@
     "@prisma/client": "^6.9.0",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.12.0",
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "csv-stringify": "^6.8.1",
     "dayjs": "^1.11.12",

@@ -67,9 +67,10 @@ function getTransport() {
  * @param {string} opts.template  - template name (booking-confirmed | payment-success | password-reset | otp)
  * @param {Object} [opts.data]    - data passed to the Handlebars template
  * @param {string} [opts.subject] - override subject line
- * @returns {Promise<{sent: boolean, messageId?: string}>}
+ * @param {Array}  [opts.attachments] - nodemailer attachments [{ filename, content, contentType }]
+ * @returns {Promise<{sent: boolean, messageId?: string, attachments?: number}>}
  */
-export async function sendEmail({ to, template, data = {}, subject }) {
+export async function sendEmail({ to, template, data = {}, subject, attachments }) {
   if (!to) {
     logger.warn(`sendEmail skipped: no recipient (template=${template})`);
     return { sent: false };
@@ -77,12 +78,13 @@ export async function sendEmail({ to, template, data = {}, subject }) {
   const resolvedSubject = subject || SUBJECTS[template] || 'OtoRent';
   const html = renderHtml(template, { ...data, subject: resolvedSubject }, resolvedSubject);
   const transport = getTransport();
+  const attachmentCount = Array.isArray(attachments) ? attachments.length : 0;
 
   if (!transport) {
     logger.info(
-      `📧 [EMAIL][console] to=${to} subject="${resolvedSubject}" template=${template} (MAIL_HOST not set — not sent)`
+      `📧 [EMAIL][console] to=${to} subject="${resolvedSubject}" template=${template} attachments=${attachmentCount} (MAIL_HOST not set — not sent)`
     );
-    return { sent: false, console: true };
+    return { sent: false, console: true, attachments: attachmentCount };
   }
 
   const info = await transport.sendMail({
@@ -90,9 +92,10 @@ export async function sendEmail({ to, template, data = {}, subject }) {
     to,
     subject: resolvedSubject,
     html,
+    attachments: attachmentCount ? attachments : undefined,
   });
   logger.info(`📧 Email sent to ${to} (${template}) messageId=${info.messageId}`);
-  return { sent: true, messageId: info.messageId };
+  return { sent: true, messageId: info.messageId, attachments: attachmentCount };
 }
 
 export default { sendEmail };

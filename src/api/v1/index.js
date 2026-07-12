@@ -20,6 +20,8 @@ import roadsideStationRoutes from './roadside-stations/roadsideStation.routes.js
 import agentApplicationRoutes from './agent-applications/agentApplication.routes.js';
 import sosRequestRoutes from './sos-requests/sosRequest.routes.js';
 import adminRoutes from './admin/index.js';
+import corporateRoutes from './corporate/corporate.routes.js';
+import { publicCache } from '../../middlewares/cacheControl.middleware.js';
 
 const router = Router();
 
@@ -59,14 +61,14 @@ router.get('/', (_req, res) =>
 );
 
 router.use('/auth', authRoutes);
-router.use('/cars', carRoutes);
+router.use('/cars', publicCache({ maxAge: 60, sMaxAge: 300 }), carRoutes);
 router.use('/bookings', bookingRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/stations', stationRoutes);
 router.use('/brands', brandRoutes);
 router.use('/vehicle-models', vehicleModelRoutes);
 router.use('/categories', categoryRoutes);
-router.use('/posts', postRoutes);
+router.use('/posts', publicCache({ maxAge: 60, sMaxAge: 300 }), postRoutes);
 router.use('/insurance-plans', insurancePlanRoutes);
 router.use('/coupons', couponRoutes);
 router.use('/me/wallet', walletRoutes);
@@ -78,6 +80,7 @@ router.use('/', contactRoutes);
 // Agent-application router owns /agent-applications and /me/agent-application.
 router.use('/', agentApplicationRoutes);
 router.use('/sos-requests', sosRequestRoutes);
+router.use('/corporate', corporateRoutes);
 router.use('/me', userRoutes);
 router.use('/admin', adminRoutes);
 

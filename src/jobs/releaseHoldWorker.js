@@ -5,7 +5,7 @@ import prisma from '../config/db.js';
 import { BOOKING_STATUS } from '../config/constants.js';
 import RedisLockService from '../services/RedisLockService.js';
 
-async function processReleaseHold(job) {
+export async function processReleaseHold(job) {
   console.log(`[Worker:release-hold] Running scan at ${new Date().toISOString()}`);
   const now = new Date();
   const expiredBookings = await prisma.booking.findMany({

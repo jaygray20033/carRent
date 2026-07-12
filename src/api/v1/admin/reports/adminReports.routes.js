@@ -9,6 +9,7 @@ import {
   revenueQuerySchema,
   bookingQuerySchema,
   topVehiclesQuerySchema,
+  b2bVsC2cQuerySchema,
 } from './adminReports.validator.js';
 
 const router = Router();
@@ -94,6 +95,26 @@ router.get(
   '/top-vehicles',
   validate(topVehiclesQuerySchema, 'query'),
   adminReportsController.topVehicles
+);
+
+/**
+ * @swagger
+ * /admin/reports/b2b-vs-c2c:
+ *   get:
+ *     tags: [Admin - Reports]
+ *     summary: B2B vs C2C revenue comparison (UC-73)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema: { type: string, example: '2026-04' }
+ *     responses:
+ *       200: { description: B2B and C2C revenue totals for the month }
+ */
+router.get(
+  '/b2b-vs-c2c',
+  validate(b2bVsC2cQuerySchema, 'query'),
+  adminReportsController.b2bVsC2c
 );
 
 export default router;

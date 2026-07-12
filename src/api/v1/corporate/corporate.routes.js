@@ -1,0 +1,259 @@
+// src/api/v1/corporate/corporate.routes.js
+// B2B Day 2–4 — Corporate portal routes (UC-62 → UC-68).
+// Mounted at /corporate.
+import { Router } from 'express';
+import { authenticate } from '../../../middlewares/auth.middleware.js';
+import {
+  requireCorporateAdmin,
+  requireCorporateEmployee,
+} from '../../../middlewares/corporate.middleware.js';
+import { validate } from '../../../middlewares/validate.middleware.js';
+import { uploadImage, handleUploadError } from '../../../middlewares/upload.middleware.js';
+import { corporateController } from './corporate.controller.js';
+import {
+  inviteEmployeeSchema,
+  acceptInviteSchema,
+  updateEmployeeSchema,
+  listEmployeesQuerySchema,
+  employeeIdParamSchema,
+} from './corporateEmployee.validator.js';
+import {
+  createBookingSchema,
+  listBookingsQuerySchema,
+  bookingIdParamSchema,
+  approveBookingSchema,
+  rejectBookingSchema,
+  addExpenseSchema,
+  expenseIdParamSchema,
+  approveExpenseSchema,
+  completeBookingSchema,
+} from './corporateBooking.validator.js';
+import {
+  settlementIdParamSchema,
+  listSettlementsQuerySchema,
+  disputeSettlementSchema,
+  dashboardQuerySchema,
+  tripsReportQuerySchema,
+} from './settlement.validator.js';
+
+const router = Router();
+
+// Invite accept — any authenticated user (not yet a member).
+router.post(
+  '/invite/accept',
+  authenticate,
+  validate(acceptInviteSchema, 'body'),
+  corporateController.acceptInvite
+);
+
+// My company — any active corporate employee.
+router.get(
+  '/me/company',
+  authenticate,
+  requireCorporateEmployee,
+  corporateController.myCompany
+);
+
+// Price config for booking form (Day 3).
+router.get(
+  '/me/price-config',
+  authenticate,
+  requireCorporateEmployee,
+  corporateController.myPriceConfig
+);
+
+// Employee management — Corporate Admin only.
+router.get(
+  '/me/company/employees',
+  authenticate,
+  requireCorporateAdmin,
+  validate(listEmployeesQuerySchema, 'query'),
+  corporateController.listEmployees
+);
+router.post(
+  '/me/company/employees',
+  authenticate,
+  requireCorporateAdmin,
+  validate(inviteEmployeeSchema, 'body'),
+  corporateController.inviteEmployee
+);
+router.put(
+  '/me/company/employees/:id',
+  authenticate,
+  requireCorporateAdmin,
+  validate(employeeIdParamSchema, 'params'),
+  validate(updateEmployeeSchema, 'body'),
+  corporateController.updateEmployee
+);
+router.delete(
+  '/me/company/employees/:id',
+  authenticate,
+  requireCorporateAdmin,
+  validate(employeeIdParamSchema, 'params'),
+  corporateController.removeEmployee
+);
+
+// ── Bookings (Day 3) ────────────────────────────────────────────────
+router.post(
+  '/bookings',
+  authenticate,
+  requireCorporateEmployee,
+  validate(createBookingSchema, 'body'),
+  corporateController.createBooking
+);
+router.get(
+  '/bookings',
+  authenticate,
+  requireCorporateEmployee,
+  validate(listBookingsQuerySchema, 'query'),
+  corporateController.listBookings
+);
+router.get(
+  '/bookings/:id',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.getBooking
+);
+router.put(
+  '/bookings/:id/approve',
+  authenticate,
+  requireCorporateAdmin,
+  validate(bookingIdParamSchema, 'params'),
+  validate(approveBookingSchema, 'body'),
+  corporateController.approveBooking
+);
+router.put(
+  '/bookings/:id/reject',
+  authenticate,
+  requireCorporateAdmin,
+  validate(bookingIdParamSchema, 'params'),
+  validate(rejectBookingSchema, 'body'),
+  corporateController.rejectBooking
+);
+router.put(
+  '/bookings/:id/cancel',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.cancelBooking
+);
+
+// ── Expenses + confirm (Day 4) ──────────────────────────────────────
+router.post(
+  '/bookings/:id/expenses',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  validate(addExpenseSchema, 'body'),
+  corporateController.addExpense
+);
+router.get(
+  '/bookings/:id/expenses',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.listExpenses
+);
+router.delete(
+  '/bookings/:id/expenses/:expenseId',
+  authenticate,
+  requireCorporateEmployee,
+  validate(expenseIdParamSchema, 'params'),
+  corporateController.deleteExpense
+);
+router.put(
+  '/bookings/:id/expenses/:expenseId/approve',
+  authenticate,
+  requireCorporateAdmin,
+  validate(expenseIdParamSchema, 'params'),
+  validate(approveExpenseSchema, 'body'),
+  corporateController.approveExpense
+);
+router.post(
+  '/bookings/:id/upload-receipt',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  uploadImage,
+  handleUploadError,
+  corporateController.uploadReceipt
+);
+router.put(
+  '/bookings/:id/complete',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  validate(completeBookingSchema, 'body'),
+  corporateController.completeBooking
+);
+router.put(
+  '/bookings/:id/confirm-employee',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.confirmEmployee
+);
+router.put(
+  '/bookings/:id/confirm-corporate',
+  authenticate,
+  requireCorporateAdmin,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.confirmCorporate
+);
+router.get(
+  '/bookings/:id/cost-summary',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.costSummary
+);
+
+// ── Settlements (Day 5) — Corporate Admin ───────────────────────────
+router.get(
+  '/settlements',
+  authenticate,
+  requireCorporateAdmin,
+  validate(listSettlementsQuerySchema, 'query'),
+  corporateController.listSettlementsCorporate
+);
+router.get(
+  '/settlements/:id',
+  authenticate,
+  requireCorporateAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  corporateController.getSettlementCorporate
+);
+router.put(
+  '/settlements/:id/confirm',
+  authenticate,
+  requireCorporateAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  corporateController.confirmSettlement
+);
+router.put(
+  '/settlements/:id/dispute',
+  authenticate,
+  requireCorporateAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  validate(disputeSettlementSchema, 'body'),
+  corporateController.disputeSettlement
+);
+
+// ── Dashboard & reports (Day 6) ─────────────────────────────────────
+router.get(
+  '/dashboard',
+  authenticate,
+  requireCorporateAdmin,
+  validate(dashboardQuerySchema, 'query'),
+  corporateController.corporateDashboard
+);
+router.get(
+  '/reports/trips',
+  authenticate,
+  requireCorporateAdmin,
+  validate(tripsReportQuerySchema, 'query'),
+  corporateController.corporateTripsReport
+);
+
+export default router;
