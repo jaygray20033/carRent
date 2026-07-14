@@ -10,6 +10,10 @@ import {
   adminListBookingsQuerySchema,
   assignDriverSchema,
 } from '../../corporate/corporateBooking.validator.js';
+import {
+  bookingVasParamSchema,
+  assignVasProviderSchema,
+} from '../../corporate/vas.validator.js';
 
 const router = Router();
 
@@ -38,6 +42,14 @@ router.put(
   '/:id/confirm-otorent',
   validate(bookingIdParamSchema, 'params'),
   corporateController.confirmOtorent
+);
+
+// ENT-Day 2 — assign VAS provider → CONFIRMED
+router.put(
+  '/:id/vas/:vasId/assign',
+  validate(bookingVasParamSchema, 'params'),
+  validate(assignVasProviderSchema, 'body'),
+  corporateController.assignBookingVas
 );
 
 export default router;

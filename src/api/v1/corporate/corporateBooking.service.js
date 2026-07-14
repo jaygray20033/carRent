@@ -27,6 +27,7 @@ const bookingInclude = {
     select: { id: true, name: true, licensePlate: true, seats: true, status: true },
   },
   expenses: true,
+  bookingVAS: { include: { vas: true } },
   corporate: {
     select: {
       id: true,
@@ -409,6 +410,7 @@ export const corporateBookingService = {
     return buildCostSummary({
       basePrice: booking.basePrice,
       expenses: booking.expenses || [],
+      vasLines: booking.bookingVAS || [],
     });
   },
 };

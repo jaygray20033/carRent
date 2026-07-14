@@ -25,7 +25,11 @@ function monthRange(monthStr) {
 
 function bookingAmount(b) {
   if (b.finalAmount != null) return Math.round(Number(b.finalAmount));
-  const s = buildCostSummary({ basePrice: b.basePrice, expenses: b.expenses || [] });
+  const s = buildCostSummary({
+    basePrice: b.basePrice,
+    expenses: b.expenses || [],
+    vasLines: b.bookingVAS || [],
+  });
   return s.total;
 }
 
@@ -46,6 +50,7 @@ export const corporateDashboardService = {
       },
       include: {
         expenses: true,
+        bookingVAS: { include: { vas: true } },
         employee: {
           select: {
             id: true,
@@ -112,7 +117,7 @@ export const corporateDashboardService = {
           pickupAt: { gte: dt, lt: dtEnd },
           status: { not: 'CANCELLED' },
         },
-        include: { expenses: true },
+        include: { expenses: true, bookingVAS: { include: { vas: true } } },
       });
       monthlyTrend.push({
         month: label,
@@ -150,6 +155,7 @@ export const corporateDashboardService = {
       where,
       include: {
         expenses: true,
+        bookingVAS: { include: { vas: true } },
         employee: {
           select: {
             employeeCode: true,
@@ -178,7 +184,11 @@ export const corporateDashboardService = {
         'Trạng thái',
       ],
       ...bookings.map((b) => {
-        const s = buildCostSummary({ basePrice: b.basePrice, expenses: b.expenses || [] });
+        const s = buildCostSummary({
+          basePrice: b.basePrice,
+          expenses: b.expenses || [],
+          vasLines: b.bookingVAS || [],
+        });
         return [
           b.id,
           new Date(b.pickupAt).toISOString(),

@@ -658,12 +658,17 @@ model CorporateClient {
   // JSON: { "4_5_seat": { half_day_0_100km, ... }, "7_seat": {...}, "16_seat": {...} }
   priceConfig     String?   @map("price_config") @db.Text
   isActive        Boolean   @default(true) @map("is_active")
+  // ENT-Day 3 — true when confirmed CRITICAL SLA violations ≥ 2 in contract term
+  contractTerminationRisk Boolean @default(false) @map("contract_termination_risk")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   employees   CorporateEmployee[]
   bookings    CorporateBooking[]
   settlements CorporateSettlement[]
+  vasPricing  CorporateVASPrice[]
+  slas        ContractSLA[]
+  amendments  ContractAmendment[]
 
   @@index([isActive])
   @@map("corporate_clients")
@@ -730,6 +735,8 @@ model CorporateBooking {
   employee   CorporateEmployee    @relation(fields: [employeeId], references: [id])
   vehicle    Vehicle?             @relation(fields: [vehicleId], references: [id])
   expenses   TripExpense[]
+  bookingVAS BookingVAS[]
+  slaViolations SLAViolation[]
   settlement CorporateSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
 
   @@index([corporateId, status])
@@ -806,4 +813,139 @@ enum SettlementStatus {
   CONFIRMED
   PAID
   DISPUTED
+}
+
+// ─── ENT: Value-Added Services (UC-76/77) ─────────────────────────
+model ValueAddedService {
+  id                Int      @id @default(autoincrement())
+  code              String   @unique
+  name              String
+  description       String?  @db.Text
+  unit              String
+  basePrice         Float    @map("base_price")
+  isActive          Boolean  @default(true) @map("is_active")
+  requiresHeadcount Boolean  @default(true) @map("requires_headcount")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  clientPricing CorporateVASPrice[]
+  bookingVAS    BookingVAS[]
+
+  @@index([isActive])
+  @@map("value_added_services")
+}
+
+model CorporateVASPrice {
+  id          Int     @id @default(autoincrement())
+  corporateId Int     @map("corporate_id")
+  vasId       Int     @map("vas_id")
+  price       Float
+  note        String? @db.Text
+
+  corporate CorporateClient   @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  vas       ValueAddedService @relation(fields: [vasId], references: [id], onDelete: Cascade)
+
+  @@unique([corporateId, vasId])
+  @@index([corporateId])
+  @@map("corporate_vas_prices")
+}
+
+model BookingVAS {
+  id                 Int       @id @default(autoincrement())
+  corporateBookingId Int       @map("corporate_booking_id")
+  vasId              Int       @map("vas_id")
+  headcount          Int       @default(1)
+  unitPrice          Float     @map("unit_price")
+  totalPrice         Float     @map("total_price")
+  note               String?   @db.Text
+  status             VASStatus @default(PENDING)
+  providerId         Int?      @map("provider_id")
+  confirmedAt        DateTime? @map("confirmed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  booking CorporateBooking  @relation(fields: [corporateBookingId], references: [id], onDelete: Cascade)
+  vas     ValueAddedService @relation(fields: [vasId], references: [id])
+
+  @@index([corporateBookingId])
+  @@index([vasId])
+  @@map("booking_vas")
+}
+
+enum VASStatus {
+  PENDING
+  CONFIRMED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ─── ENT: Contract SLA (UC-78/79) ─────────────────────────────────
+model ContractSLA {
+  id          Int     @id @default(autoincrement())
+  corporateId Int     @map("corporate_id")
+  code        String
+  name        String
+  description String? @db.Text
+  targetValue String? @map("target_value")
+  penaltyRule String? @map("penalty_rule") @db.Text
+  isActive    Boolean @default(true) @map("is_active")
+
+  corporate  CorporateClient @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  violations SLAViolation[]
+
+  @@unique([corporateId, code])
+  @@index([corporateId])
+  @@map("contract_slas")
+}
+
+model SLAViolation {
+  id                 Int               @id @default(autoincrement())
+  corporateBookingId Int               @map("corporate_booking_id")
+  slaId              Int               @map("sla_id")
+  reportedBy         String            @map("reported_by") // employee | corporate_admin | otorent_admin
+  reportedById       Int               @map("reported_by_id")
+  description        String            @db.Text
+  severity           ViolationSeverity @default(MINOR)
+  evidenceUrls       String?           @map("evidence_urls") @db.Text // JSON array of URLs
+  isConfirmed        Boolean           @default(false) @map("is_confirmed")
+  resolution         String?           @db.Text
+  resolvedAt         DateTime?         @map("resolved_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+
+  booking CorporateBooking @relation(fields: [corporateBookingId], references: [id], onDelete: Cascade)
+  sla     ContractSLA      @relation(fields: [slaId], references: [id], onDelete: Cascade)
+
+  @@index([corporateBookingId])
+  @@index([slaId])
+  @@map("sla_violations")
+}
+
+enum ViolationSeverity {
+  MINOR
+  MAJOR
+  CRITICAL
+}
+
+// ─── ENT: Contract amendments (phụ lục HĐ) ────────────────────────
+model ContractAmendment {
+  id              Int      @id @default(autoincrement())
+  corporateId     Int      @map("corporate_id")
+  amendmentNo     String   @map("amendment_no")
+  title           String
+  content         String   @db.Text
+  effectiveDate   DateTime @map("effective_date")
+  documentUrl     String?  @map("document_url")
+  // JSON partial priceConfig merge applied when both signed + effectiveDate reached
+  priceConfigDelta String? @map("price_config_delta") @db.Text
+  signedByA       Boolean  @default(false) @map("signed_by_a")
+  signedByB       Boolean  @default(false) @map("signed_by_b")
+  appliedAt       DateTime? @map("applied_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  corporate CorporateClient @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+
+  @@unique([corporateId, amendmentNo])
+  @@index([corporateId])
+  @@map("contract_amendments")
 }

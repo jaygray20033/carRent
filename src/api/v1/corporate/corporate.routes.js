@@ -35,6 +35,16 @@ import {
   dashboardQuerySchema,
   tripsReportQuerySchema,
 } from './settlement.validator.js';
+import {
+  addBookingVasSchema,
+  bookingVasParamSchema,
+} from './vas.validator.js';
+import { reportViolationSchema } from './sla.validator.js';
+import { z } from 'zod';
+
+const amendmentIdOnlySchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
 
 const router = Router();
 
@@ -60,6 +70,29 @@ router.get(
   authenticate,
   requireCorporateEmployee,
   corporateController.myPriceConfig
+);
+
+// ENT-Day 2 — negotiated VAS pricing for my company.
+router.get(
+  '/me/vas-pricing',
+  authenticate,
+  requireCorporateEmployee,
+  corporateController.myVasPricing
+);
+
+// ENT-Day 3 — amendments for my company.
+router.get(
+  '/me/amendments',
+  authenticate,
+  requireCorporateEmployee,
+  corporateController.listMyAmendments
+);
+router.put(
+  '/me/amendments/:id/sign-a',
+  authenticate,
+  requireCorporateAdmin,
+  validate(amendmentIdOnlySchema, 'params'),
+  corporateController.signAmendmentA
 );
 
 // Employee management — Corporate Admin only.
@@ -207,6 +240,40 @@ router.get(
   requireCorporateEmployee,
   validate(bookingIdParamSchema, 'params'),
   corporateController.costSummary
+);
+
+// ── ENT-Day 2: VAS on bookings ─────────────────────────────────────
+router.post(
+  '/bookings/:id/vas',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  validate(addBookingVasSchema, 'body'),
+  corporateController.addBookingVas
+);
+router.delete(
+  '/bookings/:id/vas/:vasId',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingVasParamSchema, 'params'),
+  corporateController.removeBookingVas
+);
+
+// ── ENT-Day 3: SLA violations on bookings ───────────────────────────
+router.post(
+  '/bookings/:id/sla-violations',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  validate(reportViolationSchema, 'body'),
+  corporateController.reportSlaViolation
+);
+router.get(
+  '/bookings/:id/sla-violations',
+  authenticate,
+  requireCorporateEmployee,
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.listBookingSlaViolations
 );
 
 // ── Settlements (Day 5) — Corporate Admin ───────────────────────────

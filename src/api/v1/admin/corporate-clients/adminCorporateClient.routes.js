@@ -17,6 +17,15 @@ import {
   listSettlementsQuerySchema,
   dashboardQuerySchema,
 } from '../../corporate/settlement.validator.js';
+import { corporateVasPricingSchema } from '../../corporate/vas.validator.js';
+import {
+  createSlaSchema,
+  updateSlaSchema,
+  corporateSlaParamSchema,
+  createAmendmentSchema,
+  corporateAmendmentParamSchema,
+} from '../../corporate/sla.validator.js';
+import { uploadPdf, handleUploadError } from '../../../../middlewares/upload.middleware.js';
 
 const router = Router();
 
@@ -74,6 +83,59 @@ router.get(
   validate(idParamSchema, 'params'),
   validate(dashboardQuerySchema, 'query'),
   corporateController.adminCompanyDashboard
+);
+
+// ENT-Day 2 — negotiated VAS pricing per corporate client
+router.put(
+  '/:id/vas-pricing',
+  validate(idParamSchema, 'params'),
+  validate(corporateVasPricingSchema, 'body'),
+  corporateController.setCorporateVasPricing
+);
+
+// ENT-Day 3 — SLA standards
+router.post(
+  '/:id/sla',
+  validate(idParamSchema, 'params'),
+  validate(createSlaSchema, 'body'),
+  corporateController.createSla
+);
+router.get('/:id/sla', validate(idParamSchema, 'params'), corporateController.listSla);
+router.put(
+  '/:id/sla/:slaId',
+  validate(corporateSlaParamSchema, 'params'),
+  validate(updateSlaSchema, 'body'),
+  corporateController.updateSla
+);
+router.get(
+  '/:id/sla-report',
+  validate(idParamSchema, 'params'),
+  corporateController.getSlaReport
+);
+
+// ENT-Day 3 — Contract amendments
+router.post(
+  '/:id/amendments',
+  validate(idParamSchema, 'params'),
+  validate(createAmendmentSchema, 'body'),
+  corporateController.createAmendment
+);
+router.get(
+  '/:id/amendments',
+  validate(idParamSchema, 'params'),
+  corporateController.listAmendmentsAdmin
+);
+router.post(
+  '/:id/amendments/:amendmentId/upload',
+  validate(corporateAmendmentParamSchema, 'params'),
+  uploadPdf,
+  handleUploadError,
+  corporateController.uploadAmendment
+);
+router.put(
+  '/:id/amendments/:amendmentId/sign-b',
+  validate(corporateAmendmentParamSchema, 'params'),
+  corporateController.signAmendmentB
 );
 
 export default router;

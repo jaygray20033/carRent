@@ -25,17 +25,21 @@ export function calculateSettlementTotals(bookings) {
   let totalExpenses = 0;
   const lines = [];
 
+  let totalVas = 0;
   for (const b of bookings) {
     const summary = buildCostSummary({
       basePrice: b.basePrice,
       expenses: b.expenses || [],
+      vasLines: b.bookingVAS || b.bookingVas || [],
     });
     totalBaseAmount += summary.basePrice;
     totalExpenses += summary.expenseTotal;
+    totalVas += summary.vasTotal || 0;
     lines.push({
       bookingId: b.id,
       basePrice: summary.basePrice,
       expenseTotal: summary.expenseTotal,
+      vasTotal: summary.vasTotal || 0,
       subtotal: summary.subtotal,
       vat10: summary.vat10,
       total: summary.total,
@@ -45,7 +49,8 @@ export function calculateSettlementTotals(bookings) {
   // Integer arithmetic throughout
   totalBaseAmount = Math.round(totalBaseAmount);
   totalExpenses = Math.round(totalExpenses);
-  const subtotal = totalBaseAmount + totalExpenses;
+  totalVas = Math.round(totalVas);
+  const subtotal = totalBaseAmount + totalExpenses + totalVas;
   const totalVat = Math.round(subtotal * 0.1);
   const totalAmount = subtotal + totalVat;
 

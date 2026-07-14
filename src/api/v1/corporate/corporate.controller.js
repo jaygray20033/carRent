@@ -3,7 +3,7 @@
 import { asyncHandler } from '../../../middlewares/asyncHandler.js';
 import { success, created, paginated } from '../../../utils/apiResponse.js';
 import { parsePagination } from '../../../utils/pagination.js';
-import { ValidationError, ForbiddenError } from '../../../utils/apiError.js';
+import { ValidationError, ForbiddenError, UnprocessableError } from '../../../utils/apiError.js';
 import storage from '../../../integrations/storage.js';
 import { corporateClientService } from './corporateClient.service.js';
 import { corporateEmployeeService } from './corporateEmployee.service.js';
@@ -11,6 +11,9 @@ import { corporateBookingService } from './corporateBooking.service.js';
 import { tripExpenseService } from './tripExpense.service.js';
 import { settlementService } from './settlement.service.js';
 import { corporateDashboardService } from './corporateDashboard.service.js';
+import { vasService } from './vas.service.js';
+import { slaService } from './sla.service.js';
+import { amendmentService } from './amendment.service.js';
 
 export const corporateController = {
   // ── Admin: Corporate Clients ─────────────────────────────────────
@@ -425,6 +428,156 @@ export const corporateController = {
       month: req.query.month,
     });
     return success(res, data);
+  }),
+
+  // ── ENT-Day 2: Value-Added Services ────────────────────────────────
+
+  listActiveVas: asyncHandler(async (_req, res) => {
+    const items = await vasService.listActiveCatalog();
+    return success(res, { items });
+  }),
+
+  myVasPricing: asyncHandler(async (req, res) => {
+    const items = await vasService.listMyVasPricing(req.corporateEmployee);
+    return success(res, { items });
+  }),
+
+  createVas: asyncHandler(async (req, res) => {
+    const vas = await vasService.createVas(req.body);
+    return created(res, { vas }, 'Đã tạo VAS');
+  }),
+
+  updateVas: asyncHandler(async (req, res) => {
+    const vas = await vasService.updateVas(req.params.id, req.body);
+    return success(res, { vas }, 'Đã cập nhật VAS');
+  }),
+
+  setCorporateVasPricing: asyncHandler(async (req, res) => {
+    const prices = await vasService.setCorporateVasPricing(req.params.id, req.body);
+    return success(res, { prices }, 'Đã cập nhật bảng giá VAS');
+  }),
+
+  addBookingVas: asyncHandler(async (req, res) => {
+    const line = await vasService.addBookingVas(
+      req.corporateEmployee,
+      req.params.id,
+      req.body
+    );
+    return created(res, { bookingVas: line }, 'Đã thêm VAS vào chuyến');
+  }),
+
+  removeBookingVas: asyncHandler(async (req, res) => {
+    const result = await vasService.removeBookingVas(
+      req.corporateEmployee,
+      req.params.id,
+      req.params.vasId
+    );
+    return success(res, result, 'Đã xoá VAS');
+  }),
+
+  assignBookingVas: asyncHandler(async (req, res) => {
+    const bookingVas = await vasService.assignProvider(
+      req.params.id,
+      req.params.vasId,
+      req.body
+    );
+    return success(res, { bookingVas }, 'Đã assign người thực hiện VAS');
+  }),
+
+  // ── ENT-Day 3: SLA ────────────────────────────────────────────────
+
+  createSla: asyncHandler(async (req, res) => {
+    const sla = await slaService.createSla(req.params.id, req.body);
+    return created(res, { sla }, 'Đã tạo SLA');
+  }),
+
+  listSla: asyncHandler(async (req, res) => {
+    const items = await slaService.listSla(req.params.id);
+    return success(res, { items });
+  }),
+
+  updateSla: asyncHandler(async (req, res) => {
+    const sla = await slaService.updateSla(req.params.id, req.params.slaId, req.body);
+    return success(res, { sla }, 'Đã cập nhật SLA');
+  }),
+
+  reportSlaViolation: asyncHandler(async (req, res) => {
+    const violation = await slaService.reportViolation(
+      req.corporateEmployee,
+      req.params.id,
+      req.body
+    );
+    return created(res, { violation }, 'Đã báo cáo vi phạm SLA');
+  }),
+
+  listBookingSlaViolations: asyncHandler(async (req, res) => {
+    const items = await slaService.listBookingViolations(
+      req.corporateEmployee,
+      req.params.id
+    );
+    return success(res, { items });
+  }),
+
+  confirmSlaViolation: asyncHandler(async (req, res) => {
+    const result = await slaService.confirmViolation(req.params.id, req.body);
+    return success(res, result, 'Đã xác nhận vi phạm SLA');
+  }),
+
+  getSlaReport: asyncHandler(async (req, res) => {
+    const report = await slaService.getSlaReport(req.params.id);
+    return success(res, { report });
+  }),
+
+  // ── ENT-Day 3: Amendments ─────────────────────────────────────────
+
+  createAmendment: asyncHandler(async (req, res) => {
+    const amendment = await amendmentService.create(req.params.id, req.body);
+    return created(res, { amendment }, 'Đã tạo phụ lục HĐ');
+  }),
+
+  listAmendmentsAdmin: asyncHandler(async (req, res) => {
+    const items = await amendmentService.listByCorporate(req.params.id);
+    return success(res, { items });
+  }),
+
+  listMyAmendments: asyncHandler(async (req, res) => {
+    const items = await amendmentService.listMine(req.corporateEmployee);
+    return success(res, { items });
+  }),
+
+  uploadAmendment: asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new ValidationError([{ field: 'file', message: 'Vui lòng chọn file PDF' }]);
+    }
+    if (req.file.mimetype !== 'application/pdf') {
+      // 415 Unsupported Media Type mapped via Unprocessable for consistency with upload middleware,
+      // but tests expect 415 — throw AppError-like via status on Unprocessable is 422; use raw.
+      const err = new UnprocessableError('Chỉ chấp nhận file PDF', 'UNSUPPORTED_MEDIA');
+      err.statusCode = 415;
+      throw err;
+    }
+    const { url } = await storage.upload(req.file, {
+      folder: `corporate/amendments/${req.params.id}`,
+    });
+    const amendment = await amendmentService.uploadDocument(
+      req.params.id,
+      req.params.amendmentId,
+      url
+    );
+    return success(res, { amendment, documentUrl: url }, 'Đã upload PDF phụ lục');
+  }),
+
+  signAmendmentB: asyncHandler(async (req, res) => {
+    const amendment = await amendmentService.signB(req.params.id, req.params.amendmentId);
+    return success(res, { amendment }, 'Bên B đã ký phụ lục');
+  }),
+
+  signAmendmentA: asyncHandler(async (req, res) => {
+    const amendment = await amendmentService.signA(
+      req.corporateEmployee,
+      req.params.id
+    );
+    return success(res, { amendment }, 'Bên A đã ký phụ lục');
   }),
 };
 

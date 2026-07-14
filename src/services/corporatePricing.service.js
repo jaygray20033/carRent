@@ -3,7 +3,7 @@
 import { DEFAULT_CORPORATE_PRICE_CONFIG } from '../constants/corporatePricing.js';
 import { UnprocessableError } from '../utils/apiError.js';
 
-export const VEHICLE_TYPES = ['4_5_seat', '7_seat', '16_seat'];
+export const VEHICLE_TYPES = ['4_5_seat', '7_seat', '16_seat', '29_seat'];
 export const RENTAL_TYPES = ['half_day', 'full_day'];
 
 /**

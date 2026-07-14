@@ -18,6 +18,8 @@ import adminSosRequestRoutes from './sos-requests/adminSosRequest.routes.js';
 import adminCorporateClientRoutes from './corporate-clients/adminCorporateClient.routes.js';
 import adminCorporateBookingRoutes from './corporate-bookings/adminCorporateBooking.routes.js';
 import adminSettlementRoutes from './settlements/adminSettlement.routes.js';
+import adminVasRoutes from './vas/adminVas.routes.js';
+import adminSlaViolationRoutes from './sla-violations/adminSlaViolation.routes.js';
 
 const router = Router();
 
@@ -40,5 +42,7 @@ router.use('/sos-requests', adminSosRequestRoutes);
 router.use('/corporate-clients', adminCorporateClientRoutes);
 router.use('/corporate-bookings', adminCorporateBookingRoutes);
 router.use('/settlements', adminSettlementRoutes);
+router.use('/vas', adminVasRoutes);
+router.use('/sla-violations', adminSlaViolationRoutes);
 
 export default router;

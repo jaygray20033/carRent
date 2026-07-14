@@ -32,6 +32,25 @@ export const uploadImage = multerUpload.single('image');
  */
 export const uploadImages = (max = 10) => multerUpload.array('images', max);
 
+/** Single PDF upload — field name "file" (ENT-Day 3 amendments). */
+const pdfFilter = (_req, file, cb) => {
+  if (file.mimetype === 'application/pdf') return cb(null, true);
+  const err = new ValidationError([
+    { field: 'file', message: 'Only PDF is allowed' },
+  ]);
+  err.statusCode = 415;
+  err.code = 'UNSUPPORTED_MEDIA';
+  cb(err);
+};
+
+const multerPdf = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_SIZE_BYTES },
+  fileFilter: pdfFilter,
+});
+
+export const uploadPdf = multerPdf.single('file');
+
 /**
  * Translate Multer errors into our ValidationError so the error handler
  * returns a clean 422 instead of a raw 500.

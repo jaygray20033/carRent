@@ -19,6 +19,7 @@ async function loadBookingForMember(membership, bookingId) {
     where: { id: Number(bookingId) },
     include: {
       expenses: true,
+      bookingVAS: { include: { vas: true } },
       employee: {
         select: {
           id: true,
@@ -88,6 +89,7 @@ export const tripExpenseService = {
     const summary = buildCostSummary({
       basePrice: booking.basePrice,
       expenses,
+      vasLines: booking.bookingVAS || [],
     });
     return { expenses, summary };
   },
@@ -217,10 +219,18 @@ export const tripExpenseService = {
       );
     }
 
-    const expenses = await prisma.tripExpense.findMany({
-      where: { corporateBookingId: booking.id },
+    const [expenses, vasLines] = await Promise.all([
+      prisma.tripExpense.findMany({ where: { corporateBookingId: booking.id } }),
+      prisma.bookingVAS.findMany({
+        where: { corporateBookingId: booking.id },
+        include: { vas: true },
+      }),
+    ]);
+    const summary = buildCostSummary({
+      basePrice: booking.basePrice,
+      expenses,
+      vasLines,
     });
-    const summary = buildCostSummary({ basePrice: booking.basePrice, expenses });
 
     return prisma.corporateBooking.update({
       where: { id: booking.id },
@@ -266,6 +276,7 @@ export const tripExpenseService = {
     return buildCostSummary({
       basePrice: booking.basePrice,
       expenses: booking.expenses || [],
+      vasLines: booking.bookingVAS || [],
     });
   },
 };

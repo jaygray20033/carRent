@@ -2,7 +2,7 @@
 import { z } from 'zod';
 
 export const createBookingSchema = z.object({
-  vehicleType: z.enum(['4_5_seat', '7_seat', '16_seat']),
+  vehicleType: z.enum(['4_5_seat', '7_seat', '16_seat', '29_seat']),
   rentalType: z.enum(['half_day', 'full_day']),
   estimatedKm: z.coerce.number().positive('Km ước tính phải > 0'),
   pickupAt: z.coerce.date(),

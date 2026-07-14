@@ -1152,6 +1152,116 @@ async function main() {
   });
   console.log('  ✓ B2B Corporate (AssetHub + 2 employees + default price config)');
 
+  // ENT-Day 1 — VAS catalog + AssetHub SLA defaults (Điều 3 HĐ)
+  const defaultVAS = [
+    {
+      code: 'INTERPRETER',
+      name: 'Phiên dịch viên',
+      description: 'Phiên dịch theo chuyến (ngôn ngữ theo note)',
+      unit: 'người/chuyến',
+      basePrice: 500000,
+      requiresHeadcount: true,
+    },
+    {
+      code: 'SECURITY',
+      name: 'Bảo vệ',
+      description: 'Nhân sự bảo vệ đi kèm chuyến',
+      unit: 'người/chuyến',
+      basePrice: 800000,
+      requiresHeadcount: true,
+    },
+    {
+      code: 'MEDIA_TEAM',
+      name: 'Đội truyền thông',
+      description: 'Ekip truyền thông / PR theo chuyến',
+      unit: 'buổi',
+      basePrice: 2500000,
+      requiresHeadcount: false,
+    },
+    {
+      code: 'ASSISTANT',
+      name: 'Trợ lý',
+      description: 'Trợ lý hành chính / protocol theo chuyến',
+      unit: 'người/chuyến',
+      basePrice: 600000,
+      requiresHeadcount: true,
+    },
+    {
+      code: 'PHOTOGRAPHER',
+      name: 'Nhiếp ảnh/Video',
+      description: 'Quay chụp sự kiện theo chuyến',
+      unit: 'buổi',
+      basePrice: 1500000,
+      requiresHeadcount: false,
+    },
+  ];
+  for (const v of defaultVAS) {
+    await prisma.valueAddedService.upsert({
+      where: { code: v.code },
+      update: {
+        name: v.name,
+        description: v.description,
+        unit: v.unit,
+        basePrice: v.basePrice,
+        requiresHeadcount: v.requiresHeadcount,
+        isActive: true,
+      },
+      create: { ...v, isActive: true },
+    });
+  }
+  console.log('  ✓ ENT VAS catalog (5 services)');
+
+  const defaultSLAs = [
+    {
+      code: 'PUNCTUALITY',
+      name: 'Đúng giờ',
+      description: 'Cam kết đón/trả đúng giờ theo Điều 3 HĐ',
+      targetValue: '≤ 5 phút trễ',
+      penaltyRule: 'Vi phạm 2 lần → Bên A được từ chối chuyến',
+    },
+    {
+      code: 'VEHICLE_CONDITION',
+      name: 'Chất lượng xe',
+      description: 'Xe sạch sẽ, điều hòa và trang thiết bị hoạt động tốt',
+      targetValue: 'Sạch sẽ, điều hòa hoạt động',
+      penaltyRule: 'Vi phạm MAJOR → giảm giá hoặc đổi xe',
+    },
+    {
+      code: 'DRIVER_CONDUCT',
+      name: 'Thái độ tài xế',
+      description: 'Tài xế lịch sự, đúng đồng phục, tuân thủ quy trình',
+      targetValue: 'Không khiếu nại từ khách',
+      penaltyRule: 'Vi phạm 2 lần CRITICAL → đủ điều kiện chấm dứt HĐ',
+    },
+    {
+      code: 'INFO_SECURITY',
+      name: 'Bảo mật thông tin',
+      description: 'Không tiết lộ lịch trình / thông tin khách hàng',
+      targetValue: 'Không rò rỉ thông tin',
+      penaltyRule: 'Vi phạm CRITICAL → chấm dứt HĐ ngay',
+    },
+  ];
+  for (const s of defaultSLAs) {
+    await prisma.contractSLA.upsert({
+      where: {
+        corporateId_code: { corporateId: corporate.id, code: s.code },
+      },
+      update: {
+        name: s.name,
+        description: s.description,
+        targetValue: s.targetValue,
+        penaltyRule: s.penaltyRule,
+        isActive: true,
+      },
+      create: {
+        corporateId: corporate.id,
+        ...s,
+        isActive: true,
+      },
+    });
+  }
+  console.log('  ✓ ENT Contract SLA (4 defaults for AssetHub)');
+
   console.log('\n✅ Seed done.');
 }
 

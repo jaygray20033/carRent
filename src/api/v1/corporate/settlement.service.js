@@ -42,6 +42,7 @@ const settlementInclude = {
         },
       },
       expenses: true,
+      bookingVAS: { include: { vas: true } },
     },
     orderBy: { pickupAt: 'asc' },
   },
@@ -56,6 +57,7 @@ function enrichBookings(bookings) {
     const summary = buildCostSummary({
       basePrice: b.basePrice,
       expenses: b.expenses || [],
+      vasLines: b.bookingVAS || [],
     });
     return { ...b, _line: summary };
   });
@@ -97,7 +99,7 @@ export const settlementService = {
         status: 'CONFIRMED',
         settlementId: null,
       },
-      include: { expenses: true },
+      include: { expenses: true, bookingVAS: { include: { vas: true } } },
     });
     const inPeriod = filterBookingsForPeriod(allConfirmed, start, end);
     const totals = calculateSettlementTotals(inPeriod);
