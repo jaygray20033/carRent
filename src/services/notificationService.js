@@ -21,6 +21,53 @@ export const notificationService = {
   },
 
   /**
+   * Fan a notification out to every ACTIVE user holding one of `roles`
+   * (by role code). Used for staff-facing alerts (e.g. a new booking needs
+   * handover). Best-effort like notify() — never throws into the caller.
+   */
+  async notifyRoles({ roles, type, title, body = null, link = null }) {
+    try {
+      const staff = await prisma.user.findMany({
+        where: { status: 'ACTIVE', role: { code: { in: roles } } },
+        select: { id: true },
+      });
+      await Promise.all(
+        staff.map((u) =>
+          this.notify({ userId: u.id, type, title, body, link })
+        )
+      );
+      return staff.length;
+    } catch {
+      return 0;
+    }
+  },
+
+  /**
+   * Fan a notification out to every ACTIVE supplier member of `supplierId`.
+   * When `adminOnly` is set, only the supplier's admins are notified.
+   * Best-effort like notify() — never throws into the caller.
+   */
+  async notifySupplierAdmins(supplierId, { type, title, body = null, link = null, adminOnly = true } = {}) {
+    try {
+      const members = await prisma.supplierMember.findMany({
+        where: {
+          supplierId: Number(supplierId),
+          isActive: true,
+          userId: { not: null },
+          ...(adminOnly ? { isAdmin: true } : {}),
+        },
+        select: { userId: true },
+      });
+      await Promise.all(
+        members.map((m) => this.notify({ userId: m.userId, type, title, body, link }))
+      );
+      return members.length;
+    } catch {
+      return 0;
+    }
+  },
+
+  /**
    * GET /me/notifications — paginated feed, newest first. When `unread` is set
    * only unread rows are returned. Always includes the total unread count so the
    * header bell badge can update from the same response.

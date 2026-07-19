@@ -21,6 +21,7 @@ import agentApplicationRoutes from './agent-applications/agentApplication.routes
 import sosRequestRoutes from './sos-requests/sosRequest.routes.js';
 import adminRoutes from './admin/index.js';
 import corporateRoutes from './corporate/corporate.routes.js';
+import supplierRoutes from './supplier/supplierPortal.routes.js';
 import { publicCache } from '../../middlewares/cacheControl.middleware.js';
 import { corporateController } from './corporate/corporate.controller.js';
 
@@ -84,6 +85,7 @@ router.use('/sos-requests', sosRequestRoutes);
 // ENT-Day 2 — public VAS catalog (active only).
 router.get('/vas', corporateController.listActiveVas);
 router.use('/corporate', corporateRoutes);
+router.use('/supplier', supplierRoutes);
 router.use('/me', userRoutes);
 router.use('/admin', adminRoutes);
 

@@ -43,6 +43,17 @@ export const confirmViolationSchema = z.object({
   resolution: z.string().trim().max(2000).optional().nullable(),
 });
 
+export const adminListViolationsQuerySchema = z.object({
+  isConfirmed: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  severity: z.enum(['MINOR', 'MAJOR', 'CRITICAL']).optional(),
+  corporateId: z.coerce.number().int().positive().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  size: z.coerce.number().int().positive().max(100).optional(),
+});
+
 export const createAmendmentSchema = z.object({
   amendmentNo: z.string().trim().min(1).max(40),
   title: z.string().trim().min(2).max(200),
@@ -75,6 +86,7 @@ export default {
   reportViolationSchema,
   violationIdParamSchema,
   confirmViolationSchema,
+  adminListViolationsQuerySchema,
   createAmendmentSchema,
   amendmentIdParamSchema,
   corporateAmendmentParamSchema,

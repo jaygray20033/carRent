@@ -20,7 +20,9 @@ import { BOOKING_STATUS } from '../config/constants.js';
 import { NotFoundError, AppError } from '../utils/apiError.js';
 import { notificationService } from './notificationService.js';
 
-/** Persist an in-app "booking confirmed" notification (best-effort). */
+/** Persist in-app "booking confirmed" notifications (best-effort).
+ *  Notifies the renter + every ACTIVE ADMIN/OPERATOR so staff see the new
+ *  order and can assign a handover agent. */
 async function notifyBookingConfirmed(booking) {
   await notificationService.notify({
     userId: booking.userId,
@@ -28,6 +30,13 @@ async function notifyBookingConfirmed(booking) {
     title: 'Đặt xe thành công',
     body: `Đơn ${booking.bookingCode} đã được xác nhận. Hẹn gặp bạn tại điểm nhận xe!`,
     link: `/me/bookings/${booking.id}`,
+  });
+  await notificationService.notifyRoles({
+    roles: ['ADMIN', 'OPERATOR'],
+    type: 'BOOKING_NEW',
+    title: `Đơn mới ${booking.bookingCode}`,
+    body: `Khách vừa đặt xe — pickup ${new Date(booking.pickupAt).toLocaleString('vi-VN')}. Cần gán nhân viên giao xe.`,
+    link: `/admin/bookings/${booking.id}`,
   });
 }
 

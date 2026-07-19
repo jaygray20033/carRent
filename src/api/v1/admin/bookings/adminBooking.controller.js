@@ -35,6 +35,26 @@ export const adminBookingController = {
     return success(res, { booking }, 'Payment confirmed');
   },
 
+  // GET /admin/bookings/upcoming-pickups — CONFIRMED pickups in the next N hours.
+  upcomingPickups: async (req, res) => {
+    const result = await adminBookingService.upcomingPickups({
+      hours: req.query?.hours,
+      unassigned: req.query?.unassigned,
+      assignedStaffId: req.query?.assignedStaffId,
+    });
+    return success(res, result, 'Upcoming pickups');
+  },
+
+  // POST /admin/bookings/:id/assign-staff — assign a handover agent.
+  assignStaff: async (req, res) => {
+    const booking = await adminBookingService.assignStaff(
+      req.user.id,
+      req.params.id,
+      req.body.staffId
+    );
+    return success(res, { booking }, 'Staff assigned');
+  },
+
   // POST /admin/bookings/:id/refund — admin override, bypasses the time window.
   refund: async (req, res) => {
     const result = await bookingService.adminRefund(req.user.id, req.params.id, {

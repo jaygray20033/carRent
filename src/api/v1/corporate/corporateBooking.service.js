@@ -10,6 +10,7 @@ import {
 import { calculateBasePrice } from '../../../services/corporatePricing.service.js';
 import { buildCostSummary } from '../../../services/tripExpenseCalculator.js';
 import { notificationService } from '../../../services/notificationService.js';
+import { stripBookingForCorporate } from '../../../constants/supplier.js';
 
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 
@@ -133,7 +134,7 @@ export const corporateBookingService = {
       link: `/corporate/bookings/${booking.id}`,
     });
 
-    return booking;
+    return stripBookingForCorporate(booking);
   },
 
   async list(membership, { status, employeeId, month, page = 1, size = 20 } = {}) {
@@ -164,7 +165,7 @@ export const corporateBookingService = {
       }),
       prisma.corporateBooking.count({ where }),
     ]);
-    return { items, total, page, size };
+    return { items: items.map(stripBookingForCorporate), total, page, size };
   },
 
   async getById(membership, id) {
@@ -179,7 +180,7 @@ export const corporateBookingService = {
     if (!membership.isAdmin && booking.employeeId !== membership.id) {
       throw new ForbiddenError('Bạn chỉ xem được chuyến của mình');
     }
-    return booking;
+    return stripBookingForCorporate(booking);
   },
 
   async approve(membership, id, { vehicleId, driverId } = {}) {
@@ -212,7 +213,7 @@ export const corporateBookingService = {
         link: `/corporate/bookings/${updated.id}`,
       });
     }
-    return updated;
+    return stripBookingForCorporate(updated);
   },
 
   async reject(membership, id, { reason }) {
@@ -244,7 +245,7 @@ export const corporateBookingService = {
         link: `/corporate/bookings/${updated.id}`,
       });
     }
-    return updated;
+    return stripBookingForCorporate(updated);
   },
 
   async cancel(membership, id) {
@@ -261,7 +262,8 @@ export const corporateBookingService = {
         'CANNOT_CANCEL_IN_PROGRESS'
       );
     }
-    if (!['PENDING', 'APPROVED'].includes(booking.status)) {
+    // Marketplace: also allow cancel while still with supplier (not yet started).
+    if (!['PENDING', 'APPROVED', 'DISPATCHED', 'DRIVER_ASSIGNED'].includes(booking.status)) {
       throw new ConflictError(
         `Không thể huỷ từ trạng thái ${booking.status}`,
         'INVALID_STATUS_TRANSITION'
@@ -274,11 +276,28 @@ export const corporateBookingService = {
       );
     }
 
-    return prisma.corporateBooking.update({
+    // Capture supplier before cancel so we can notify them (white-label: they just see cancel).
+    const raw = await prisma.corporateBooking.findUnique({
+      where: { id: booking.id },
+      select: { supplierId: true },
+    });
+
+    const cancelled = await prisma.corporateBooking.update({
       where: { id: booking.id },
       data: { status: 'CANCELLED' },
       include: bookingInclude,
     });
+
+    if (raw?.supplierId) {
+      await notificationService.notifySupplierAdmins(raw.supplierId, {
+        type: 'SUPPLIER_BOOKING_CANCELLED',
+        title: 'Chuyến đã bị huỷ',
+        body: `Chuyến #${cancelled.id} đã bị huỷ bởi doanh nghiệp.`,
+        link: `/supplier/bookings`,
+      });
+    }
+
+    return stripBookingForCorporate(cancelled);
   },
 
   /**
@@ -289,6 +308,8 @@ export const corporateBookingService = {
     corporateId,
     status,
     driverId,
+    supplierId,
+    awaitingDriverRelease,
     from,
     to,
     page = 1,
@@ -298,6 +319,13 @@ export const corporateBookingService = {
     if (corporateId) where.corporateId = Number(corporateId);
     if (status) where.status = status;
     if (driverId) where.driverId = Number(driverId);
+    if (supplierId) where.supplierId = Number(supplierId);
+    // DRIVER_ASSIGNED but OtoRent has not yet released driver info to the company.
+    if (awaitingDriverRelease === true || awaitingDriverRelease === 'true') {
+      where.status = 'DRIVER_ASSIGNED';
+      where.driverInfoReleasedAt = null;
+      where.supplierId = { not: null };
+    }
     if (from || to) {
       where.pickupAt = {};
       if (from) where.pickupAt.gte = new Date(from);

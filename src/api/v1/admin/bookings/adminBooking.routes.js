@@ -12,6 +12,8 @@ import {
   adminListBookingsQuerySchema,
   addNoteSchema,
   confirmPaymentSchema,
+  upcomingPickupsQuerySchema,
+  assignStaffSchema,
 } from './adminBooking.validator.js';
 
 const router = Router();
@@ -52,6 +54,33 @@ router.get(
   NO_AGENT,
   validate(adminListBookingsQuerySchema, 'query'),
   asyncHandler(adminBookingController.list)
+);
+
+/**
+ * @swagger
+ * /admin/bookings/upcoming-pickups:
+ *   get:
+ *     tags: [Admin - Bookings]
+ *     summary: CONFIRMED pickups due within the next N hours (handover board)
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: hours
+ *         schema: { type: integer, minimum: 1, maximum: 168, default: 24 }
+ *       - in: query
+ *         name: unassigned
+ *         schema: { type: string, enum: [true, false] }
+ *       - in: query
+ *         name: assignedStaffId
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: Upcoming pickups sorted soonest-first }
+ */
+router.get(
+  '/upcoming-pickups',
+  NO_AGENT,
+  validate(upcomingPickupsQuerySchema, 'query'),
+  asyncHandler(adminBookingController.upcomingPickups)
 );
 
 /**
@@ -141,6 +170,41 @@ router.post(
   validate(idParamSchema, 'params'),
   validate(confirmPaymentSchema, 'body'),
   asyncHandler(adminBookingController.confirmPayment)
+);
+
+/**
+ * @swagger
+ * /admin/bookings/{id}/assign-staff:
+ *   post:
+ *     tags: [Admin - Bookings]
+ *     summary: Assign a handover agent (ADMIN/OPERATOR/AGENT) to a C2C booking
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [staffId]
+ *             properties:
+ *               staffId: { type: integer }
+ *     responses:
+ *       200: { description: Staff assigned, assignee notified }
+ *       409: { description: Booking past handover (INVALID_STATUS_TRANSITION) }
+ *       422: { description: Staff inactive or wrong role }
+ *       404: { description: Booking or staff not found }
+ */
+router.post(
+  '/:id/assign-staff',
+  NO_AGENT,
+  validate(idParamSchema, 'params'),
+  validate(assignStaffSchema, 'body'),
+  asyncHandler(adminBookingController.assignStaff)
 );
 
 /**

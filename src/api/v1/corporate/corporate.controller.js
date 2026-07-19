@@ -203,6 +203,8 @@ export const corporateController = {
       corporateId: req.query.corporateId,
       status: req.query.status,
       driverId: req.query.driverId,
+      supplierId: req.query.supplierId,
+      awaitingDriverRelease: req.query.awaitingDriverRelease,
       from: req.query.from,
       to: req.query.to,
       page,
@@ -496,6 +498,11 @@ export const corporateController = {
     return success(res, { items });
   }),
 
+  listMySla: asyncHandler(async (req, res) => {
+    const result = await slaService.listMySla(req.corporateEmployee);
+    return success(res, result);
+  }),
+
   updateSla: asyncHandler(async (req, res) => {
     const sla = await slaService.updateSla(req.params.id, req.params.slaId, req.body);
     return success(res, { sla }, 'Đã cập nhật SLA');
@@ -521,6 +528,11 @@ export const corporateController = {
   confirmSlaViolation: asyncHandler(async (req, res) => {
     const result = await slaService.confirmViolation(req.params.id, req.body);
     return success(res, result, 'Đã xác nhận vi phạm SLA');
+  }),
+
+  adminListSlaViolations: asyncHandler(async (req, res) => {
+    const result = await slaService.adminListViolations(req.query);
+    return success(res, result);
   }),
 
   getSlaReport: asyncHandler(async (req, res) => {

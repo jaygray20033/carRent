@@ -3,7 +3,7 @@
 import { DEFAULT_CORPORATE_PRICE_CONFIG } from '../constants/corporatePricing.js';
 import { UnprocessableError } from '../utils/apiError.js';
 
-export const VEHICLE_TYPES = ['4_5_seat', '7_seat', '16_seat', '29_seat'];
+export const VEHICLE_TYPES = ['4_5_seat', '7_seat', '16_seat', '29_seat', '34_seat', '45_seat'];
 export const RENTAL_TYPES = ['half_day', 'full_day'];
 
 /**
@@ -74,12 +74,43 @@ export function calculateBasePrice({ vehicleType, rentalType, estimatedKm, price
   return { basePrice, priceKey, vehicleType, rentalType, estimatedKm: km };
 }
 
-/** AssetHub unit rates for variable expenses (VND). */
+/**
+ * AssetHub unit rates for variable expenses (VND) — Phụ lục 01, mục II.
+ * Full 6-vehicle table from the CCDV contract appendix.
+ */
 export const EXPENSE_UNIT_RATES = {
-  EXTRA_KM: { '4_5_seat': 5500, '7_seat': 6000, '16_seat': 7000 },
-  ONE_WAY_KM: { '4_5_seat': 11000, '7_seat': 13000, '16_seat': 15000 },
-  OVERTIME: { '4_5_seat': 50000, '7_seat': 50000, '16_seat': 60000 }, // per hour
-  OVERNIGHT: { '4_5_seat': 300000, '7_seat': 280000, '16_seat': 300000 }, // per night
+  EXTRA_KM: {
+    '4_5_seat': 5500,
+    '7_seat': 6000,
+    '16_seat': 7000,
+    '29_seat': 8000,
+    '34_seat': 11000,
+    '45_seat': 15000,
+  },
+  ONE_WAY_KM: {
+    '4_5_seat': 11000,
+    '7_seat': 13000,
+    '16_seat': 15000,
+    '29_seat': 17000,
+    '34_seat': 21000,
+    '45_seat': 31000,
+  },
+  OVERTIME: {
+    '4_5_seat': 50000,
+    '7_seat': 50000,
+    '16_seat': 60000,
+    '29_seat': 80000,
+    '34_seat': 100000,
+    '45_seat': 100000,
+  }, // per hour
+  OVERNIGHT: {
+    '4_5_seat': 280000,
+    '7_seat': 280000,
+    '16_seat': 300000,
+    '29_seat': 350000,
+    '34_seat': 350000,
+    '45_seat': 400000,
+  }, // per night
 };
 
 /**

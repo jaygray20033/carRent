@@ -58,7 +58,9 @@ async function maybeApplyPriceConfig(amendmentId) {
     return serialize(updated);
   }
 
-  const merged = mergePriceConfig(a.corporate.priceConfig, a.priceConfigDelta);
+  // Auto-create priceConfig when missing (null/empty), then merge delta.
+  const baseConfig = a.corporate.priceConfig || '{}';
+  const merged = mergePriceConfig(baseConfig, a.priceConfigDelta);
   await prisma.$transaction([
     prisma.corporateClient.update({
       where: { id: a.corporateId },

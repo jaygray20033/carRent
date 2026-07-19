@@ -10,19 +10,21 @@ const { default: prisma } = await import('../src/config/db.js');
 const { Prisma } = await import('@prisma/client');
 
 describe('B2B Day 1 — schema & enums', () => {
-  test('CorporateBookingStatus has exactly 7 statuses', () => {
+  test('CorporateBookingStatus has 9 statuses (7 B2B + DISPATCHED/DRIVER_ASSIGNED marketplace)', () => {
     expect(CORPORATE_BOOKING_STATUSES).toEqual([
       'PENDING',
       'APPROVED',
+      'DISPATCHED',
+      'DRIVER_ASSIGNED',
       'IN_PROGRESS',
       'PENDING_CONFIRM',
       'CONFIRMED',
       'SETTLED',
       'CANCELLED',
     ]);
-    expect(CORPORATE_BOOKING_STATUSES).toHaveLength(7);
+    expect(CORPORATE_BOOKING_STATUSES).toHaveLength(9);
     // Prisma enum matches constants
-    expect(Object.keys(Prisma.CorporateBookingStatus || {}).length || 7).toBeGreaterThanOrEqual(0);
+    expect(Object.keys(Prisma.CorporateBookingStatus || {}).length || 9).toBeGreaterThanOrEqual(0);
     // Runtime: create with each status must not throw invalid-enum
     for (const s of CORPORATE_BOOKING_STATUSES) {
       expect(CORPORATE_BOOKING_STATUSES.includes(s)).toBe(true);

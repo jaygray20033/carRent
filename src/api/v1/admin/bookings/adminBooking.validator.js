@@ -23,6 +23,8 @@ export const adminListBookingsQuerySchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   q: z.string().max(120).optional(),
+  assignedStaffId: z.coerce.number().int().positive().optional(),
+  unassigned: z.enum(['true', 'false']).optional(),
 });
 
 // POST /admin/bookings/:id/note — internal note (timeline entry).
@@ -34,6 +36,21 @@ export const addNoteSchema = z.object({
 export const confirmPaymentSchema = z.object({
   method: z.enum(['BANK_TRANSFER', 'CASH']).optional(),
   note: z.string().max(500).optional(),
+});
+
+// GET /admin/bookings/upcoming-pickups — CONFIRMED pickups in the next N hours.
+export const upcomingPickupsQuerySchema = z.object({
+  hours: z.coerce.number().int().min(1).max(168).optional(),
+  unassigned: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+  assignedStaffId: z.coerce.number().int().positive().optional(),
+});
+
+// POST /admin/bookings/:id/assign-staff — assign a handover agent.
+export const assignStaffSchema = z.object({
+  staffId: z.coerce.number().int().positive('staffId là bắt buộc'),
 });
 
 // POST /admin/bookings/:id/refund — admin override (bypasses time window).
@@ -55,4 +72,6 @@ export default {
   adminListBookingsQuerySchema,
   addNoteSchema,
   confirmPaymentSchema,
+  upcomingPickupsQuerySchema,
+  assignStaffSchema,
 };

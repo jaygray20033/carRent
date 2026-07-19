@@ -19,6 +19,9 @@ const MANUAL_METHODS = ['BANK_TRANSFER', 'CASH'];
 
 const listInclude = {
   user: { select: { id: true, fullName: true, phone: true, email: true } },
+  assignedStaff: {
+    select: { id: true, fullName: true, phone: true, email: true, role: { select: { code: true, name: true } } },
+  },
   vehicle: {
     select: {
       id: true,
@@ -33,12 +36,23 @@ const listInclude = {
   dropoffStation: { select: { id: true, name: true, city: true } },
 };
 
+// Roles allowed to be assigned as the handover agent for a C2C booking.
+const ASSIGNABLE_ROLES = ['ADMIN', 'OPERATOR', 'AGENT'];
+
+// Statuses that still need a handover — past these, reassignment is locked.
+const ASSIGNABLE_STATUSES = [
+  BOOKING_STATUS.CONFIRMED,
+  BOOKING_STATUS.PENDING_PAYMENT,
+];
+
 export const adminBookingService = {
   /**
    * UC-54 — Admin booking list. Filters:
    *   status    : exact booking status
    *   from / to : pickup_at range (inclusive; from→00:00, to→23:59:59.999)
    *   q         : booking code / customer name / phone / email (contains)
+   *   assignedStaffId : filter by the staff currently assigned for handover
+   *   unassigned : when true, only bookings with no assignedStaffId
    */
   async list(query) {
     const page = Number(query.page) > 0 ? Number(query.page) : 1;
@@ -73,6 +87,12 @@ export const adminBookingService = {
       ];
     }
 
+    if (query.assignedStaffId != null) {
+      where.assignedStaffId = Number(query.assignedStaffId);
+    } else if (query.unassigned === true || query.unassigned === 'true') {
+      where.assignedStaffId = null;
+    }
+
     const [total, items] = await Promise.all([
       prisma.booking.count({ where }),
       prisma.booking.findMany({
@@ -93,6 +113,15 @@ export const adminBookingService = {
       where: { id: Number(id) },
       include: {
         user: { select: { id: true, fullName: true, phone: true, email: true, avatarUrl: true } },
+        assignedStaff: {
+          select: {
+            id: true,
+            fullName: true,
+            phone: true,
+            email: true,
+            role: { select: { code: true, name: true } },
+          },
+        },
         vehicle: { include: { brand: true, model: true, images: true } },
         pickupStation: true,
         dropoffStation: true,
@@ -126,6 +155,117 @@ export const adminBookingService = {
     });
 
     return this.getById(booking.id);
+  },
+
+  /**
+   * POST /admin/bookings/:id/assign-staff — assign an ADMIN/OPERATOR/AGENT
+   * as the handover agent for a C2C booking. Notifies the assignee and
+   * records a history entry. Allowed while the booking is still pending
+   * payment or confirmed (pre-handover).
+   */
+  async assignStaff(adminId, id, staffId) {
+    const booking = await prisma.booking.findUnique({ where: { id: Number(id) } });
+    if (!booking) throw new NotFoundError('Booking');
+
+    if (!ASSIGNABLE_STATUSES.includes(booking.status)) {
+      throw new AppError(
+        `Không thể gán nhân viên khi đơn đang ${booking.status}`,
+        409,
+        'INVALID_STATUS_TRANSITION'
+      );
+    }
+
+    const staff = await prisma.user.findUnique({
+      where: { id: Number(staffId) },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        status: true,
+        role: { select: { code: true, name: true } },
+      },
+    });
+    if (!staff) throw new NotFoundError('Staff');
+    if (staff.status !== 'ACTIVE') {
+      throw new AppError('Nhân viên không ở trạng thái ACTIVE', 422, 'STAFF_INACTIVE');
+    }
+    if (!ASSIGNABLE_ROLES.includes(staff.role?.code)) {
+      throw new AppError(
+        'Chỉ gán được ADMIN / OPERATOR / AGENT',
+        422,
+        'STAFF_ROLE_INVALID'
+      );
+    }
+
+    const updated = await prisma.booking.update({
+      where: { id: booking.id },
+      data: {
+        assignedStaffId: staff.id,
+        assignedAt: new Date(),
+        history: {
+          create: {
+            fromStatus: booking.status,
+            toStatus: booking.status,
+            changedBy: adminId,
+            note: `Gán nhân viên giao xe: ${staff.fullName} (#${staff.id})`,
+            metadata: JSON.stringify({
+              assignedStaffId: staff.id,
+              assignedStaffName: staff.fullName,
+            }),
+          },
+        },
+      },
+      include: listInclude,
+    });
+
+    await notificationService
+      .notify({
+        userId: staff.id,
+        type: 'BOOKING_ASSIGNED',
+        title: `Bạn được gán đơn ${booking.bookingCode}`,
+        body: `Pickup ${new Date(booking.pickupAt).toLocaleString('vi-VN')} — vui lòng chuẩn bị giao xe.`,
+        link: `/admin/bookings/${booking.id}`,
+      })
+      .catch(() => {});
+
+    return updated;
+  },
+
+  /**
+   * GET /admin/bookings/upcoming-pickups — CONFIRMED bookings whose pickupAt
+   * falls within the next `hours` (default 24). Sorted soonest-first so the
+   * station board shows what needs handing over next. Optional filters:
+   * unassigned-only, or a specific assignedStaffId.
+   */
+  async upcomingPickups({ hours = 24, unassigned, assignedStaffId } = {}) {
+    const windowHours = Math.min(Math.max(Number(hours) || 24, 1), 168);
+    const now = new Date();
+    const until = new Date(now.getTime() + windowHours * 3600_000);
+
+    const where = {
+      status: BOOKING_STATUS.CONFIRMED,
+      pickupAt: { gte: now, lte: until },
+    };
+    if (assignedStaffId != null) {
+      where.assignedStaffId = Number(assignedStaffId);
+    } else if (unassigned === true || unassigned === 'true') {
+      where.assignedStaffId = null;
+    }
+
+    const items = await prisma.booking.findMany({
+      where,
+      orderBy: { pickupAt: 'asc' },
+      take: 100,
+      include: listInclude,
+    });
+
+    return {
+      windowHours,
+      from: now.toISOString(),
+      to: until.toISOString(),
+      total: items.length,
+      items,
+    };
   },
 
   /**
@@ -207,7 +347,7 @@ export const adminBookingService = {
       });
     });
 
-    // Free the Redis hold + notify the renter (best-effort, never blocks).
+    // Free the Redis hold + notify renter + staff (best-effort, never blocks).
     await RedisLockService.releaseHold(
       confirmed.vehicleId,
       toIso(confirmed.pickupAt),
@@ -222,6 +362,16 @@ export const adminBookingService = {
         title: 'Đặt xe thành công',
         body: `Đơn ${confirmed.bookingCode} đã được xác nhận thanh toán. Hẹn gặp bạn tại điểm nhận xe!`,
         link: `/me/bookings/${confirmed.id}`,
+      })
+      .catch(() => {});
+
+    await notificationService
+      .notifyRoles({
+        roles: ['ADMIN', 'OPERATOR'],
+        type: 'BOOKING_NEW',
+        title: `Đơn mới ${confirmed.bookingCode}`,
+        body: `Thanh toán offline đã xác nhận — pickup ${new Date(confirmed.pickupAt).toLocaleString('vi-VN')}. Cần gán nhân viên giao xe.`,
+        link: `/admin/bookings/${confirmed.id}`,
       })
       .catch(() => {});
 

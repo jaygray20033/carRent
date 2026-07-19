@@ -26,27 +26,28 @@ model Role {
 
 // ─── Users ──────────────────────────────────────────────────────────
 model User {
-  id               Int       @id @default(autoincrement())
-  roleId           Int       @map("role_id")
-  fullName         String    @map("full_name")
-  email            String?   @unique
-  phone            String    @unique
-  countryCode      String    @default("+84") @map("country_code")
-  passwordHash     String    @map("password_hash")
-  avatarUrl        String?   @map("avatar_url")
-  dateOfBirth      DateTime? @map("date_of_birth")
-  gender           String?
-  nationalId       String?   @map("national_id")
-  driverLicense    String?   @map("driver_license")
-  status           String    @default("PENDING")
-  emailVerifiedAt  DateTime? @map("email_verified_at")
-  phoneVerifiedAt  DateTime? @map("phone_verified_at")
-  lastLoginAt      DateTime? @map("last_login_at")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id              Int       @id @default(autoincrement())
+  roleId          Int       @map("role_id")
+  fullName        String    @map("full_name")
+  email           String?   @unique
+  phone           String    @unique
+  countryCode     String    @default("+84") @map("country_code")
+  passwordHash    String    @map("password_hash")
+  avatarUrl       String?   @map("avatar_url")
+  dateOfBirth     DateTime? @map("date_of_birth")
+  gender          String?
+  nationalId      String?   @map("national_id")
+  driverLicense   String?   @map("driver_license")
+  status          String    @default("PENDING")
+  emailVerifiedAt DateTime? @map("email_verified_at")
+  phoneVerifiedAt DateTime? @map("phone_verified_at")
+  lastLoginAt     DateTime? @map("last_login_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
 
   role               Role                @relation(fields: [roleId], references: [id])
-  bookings           Booking[]
+  bookings           Booking[]           @relation("bookingRenter")
+  assignedBookings   Booking[]           @relation("bookingAssignee")
   wallet             Wallet?
   walletTransactions WalletTransaction[]
   payments           Payment[]
@@ -58,6 +59,7 @@ model User {
   agentApplications  AgentApplication[]
   sosRequests        SosRequest[]
   corporateEmployee  CorporateEmployee?
+  supplierMember     SupplierMember?
 
   @@map("users")
 }
@@ -82,12 +84,12 @@ model RefreshToken {
 
 // ─── Brands ─────────────────────────────────────────────────────────
 model Brand {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique
-  slug      String    @unique
-  logoUrl   String?   @map("logo_url")
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
+  logoUrl   String?  @map("logo_url")
   country   String?
-  createdAt DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   vehicles      Vehicle[]
   vehicleModels VehicleModel[]
@@ -97,16 +99,16 @@ model Brand {
 
 // ─── Vehicle Models ─────────────────────────────────────────────────
 model VehicleModel {
-  id           Int       @id @default(autoincrement())
-  brandId      Int       @map("brand_id")
-  categoryId   Int?      @map("category_id")
+  id           Int      @id @default(autoincrement())
+  brandId      Int      @map("brand_id")
+  categoryId   Int?     @map("category_id")
   name         String
-  slug         String    @unique
-  seats        Int       @default(5)
-  transmission String    @default("AUTO")
-  fuelType     String    @default("GASOLINE") @map("fuel_type")
-  description  String?   @db.Text
-  createdAt    DateTime  @default(now()) @map("created_at")
+  slug         String   @unique
+  seats        Int      @default(5)
+  transmission String   @default("AUTO")
+  fuelType     String   @default("GASOLINE") @map("fuel_type")
+  description  String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
 
   brand    Brand     @relation(fields: [brandId], references: [id])
   category Category? @relation(fields: [categoryId], references: [id])
@@ -117,11 +119,11 @@ model VehicleModel {
 
 // ─── Categories ─────────────────────────────────────────────────────
 model Category {
-  id        Int       @id @default(autoincrement())
-  name      String    @unique
-  slug      String    @unique
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  slug      String   @unique
   icon      String?
-  createdAt DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
   vehicles      Vehicle[]
   vehicleModels VehicleModel[]
@@ -143,9 +145,9 @@ model Station {
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")
 
-  vehicles         Vehicle[]
-  pickupBookings   Booking[] @relation("pickupStation")
-  dropoffBookings  Booking[] @relation("dropoffStation")
+  vehicles        Vehicle[]
+  pickupBookings  Booking[] @relation("pickupStation")
+  dropoffBookings Booking[] @relation("dropoffStation")
 
   @@map("stations")
 }
@@ -221,19 +223,19 @@ model InsurancePlan {
 
 // ─── Coupons (Day 12 — UC-16) ──────────────────────────────────────
 model Coupon {
-  id              Int       @id @default(autoincrement())
-  code            String    @unique
-  type            String    // FIXED, PERCENT, FREE_DRIVER
-  value           Float
-  minOrder        Float     @default(0) @map("min_order")
-  maxDiscount     Float?    @map("max_discount")
-  maxUse          Int       @default(0) @map("max_use")
-  maxUsePerUser   Int       @default(1) @map("max_use_per_user")
-  startAt         DateTime  @map("start_at")
-  endAt           DateTime  @map("end_at")
-  appliesTo       String    @default("ALL") @map("applies_to") // ALL, CATEGORY, MODEL
-  isActive        Boolean   @default(true) @map("is_active")
-  createdAt       DateTime  @default(now()) @map("created_at")
+  id            Int      @id @default(autoincrement())
+  code          String   @unique
+  type          String // FIXED, PERCENT, FREE_DRIVER
+  value         Float
+  minOrder      Float    @default(0) @map("min_order")
+  maxDiscount   Float?   @map("max_discount")
+  maxUse        Int      @default(0) @map("max_use")
+  maxUsePerUser Int      @default(1) @map("max_use_per_user")
+  startAt       DateTime @map("start_at")
+  endAt         DateTime @map("end_at")
+  appliesTo     String   @default("ALL") @map("applies_to") // ALL, CATEGORY, MODEL
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   usages CouponUsage[]
 
@@ -287,25 +289,27 @@ model Booking {
   extraFee         Float     @default(0) @map("extra_fee") // fuel/charge/damage charged at return
   note             String?   @db.Text
   pricingSnapshot  String?   @map("pricing_snapshot") @db.Text
+  assignedStaffId  Int?      @map("assigned_staff_id") // staff (ADMIN/OPERATOR/AGENT) tasked with handover
+  assignedAt       DateTime? @map("assigned_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  user           User           @relation(fields: [userId], references: [id])
-  vehicle        Vehicle        @relation(fields: [vehicleId], references: [id])
-  pickupStation  Station?       @relation("pickupStation", fields: [pickupStationId], references: [id])
-  dropoffStation Station?       @relation("dropoffStation", fields: [dropoffStationId], references: [id])
-  insurancePlan  InsurancePlan? @relation(fields: [insurancePlanId], references: [id])
-  history        BookingHistory[]
-  payments       Payment[]
-  sosRequests        SosRequest[] @relation("bookingSos")
-  sosReplacementFor  SosRequest[] @relation("replacementBooking")
+  user              User             @relation("bookingRenter", fields: [userId], references: [id])
+  assignedStaff     User?            @relation("bookingAssignee", fields: [assignedStaffId], references: [id])
+  vehicle           Vehicle          @relation(fields: [vehicleId], references: [id])
+  pickupStation     Station?         @relation("pickupStation", fields: [pickupStationId], references: [id])
+  dropoffStation    Station?         @relation("dropoffStation", fields: [dropoffStationId], references: [id])
+  insurancePlan     InsurancePlan?   @relation(fields: [insurancePlanId], references: [id])
+  history           BookingHistory[]
+  payments          Payment[]
+  sosRequests       SosRequest[]     @relation("bookingSos")
+  sosReplacementFor SosRequest[]     @relation("replacementBooking")
 
   // Overlap/availability check (car.service, booking.service) filters by
   // vehicle then the pickup/return window — covers UC-14 conflict detection.
   @@index([vehicleId, pickupAt, returnAt])
   // "My bookings" list is filtered by user + status.
   @@index([userId, status])
-
   @@map("bookings")
 }
 
@@ -331,7 +335,7 @@ model Payment {
   bookingId     Int?      @map("booking_id")
   userId        Int?      @map("user_id")
   type          String    @default("BOOKING") // BOOKING, TOPUP
-  method        String    // VNPAY, MOMO, ZALOPAY, WALLET, BANK_TRANSFER, CASH
+  method        String // VNPAY, MOMO, ZALOPAY, WALLET, BANK_TRANSFER, CASH
   amount        Float
   status        String    @default("PENDING") // PENDING, SUCCESS, FAILED, REFUNDED
   txnRef        String?   @unique @map("txn_ref") // UUID handed to the provider; basis for webhook idempotency
@@ -356,7 +360,7 @@ model Review {
   userId    Int      @map("user_id")
   vehicleId Int      @map("vehicle_id")
   bookingId Int?     @unique @map("booking_id") // one review per completed booking
-  rating    Int      // 1-5
+  rating    Int // 1-5
   content   String?  @db.Text
   photos    String?  @db.Text // JSON array of image URLs
   status    String   @default("PENDING") // PENDING | APPROVED | REJECTED
@@ -451,8 +455,8 @@ model WalletTransaction {
   id            Int      @id @default(autoincrement())
   walletId      Int      @map("wallet_id")
   userId        Int      @map("user_id")
-  type          String   // TOPUP, PAYMENT, REFUND, WITHDRAW
-  amount        Float    // dương = cộng tiền, âm = trừ tiền
+  type          String // TOPUP, PAYMENT, REFUND, WITHDRAW
+  amount        Float // dương = cộng tiền, âm = trừ tiền
   balanceBefore Float    @map("balance_before")
   balanceAfter  Float    @map("balance_after")
   status        String   @default("SUCCESS") // PENDING, SUCCESS, FAILED
@@ -561,20 +565,20 @@ model Notification {
 
 // ─── Address Book (UC-42, UC-43) ────────────────────────────────────
 model Address {
-  id            Int      @id @default(autoincrement())
-  userId        Int      @map("user_id")
-  contactName   String   @map("contact_name")
-  contactPhone  String   @map("contact_phone")
-  line          String   @db.Text // street address (số nhà, đường)
-  ward          String?
-  district      String?
-  city          String
-  postalCode    String?  @map("postal_code")
-  latitude      Float?
-  longitude     Float?
-  isDefault     Boolean  @default(false) @map("is_default")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id           Int      @id @default(autoincrement())
+  userId       Int      @map("user_id")
+  contactName  String   @map("contact_name")
+  contactPhone String   @map("contact_phone")
+  line         String   @db.Text // street address (số nhà, đường)
+  ward         String?
+  district     String?
+  city         String
+  postalCode   String?  @map("postal_code")
+  latitude     Float?
+  longitude    Float?
+  isDefault    Boolean  @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -584,21 +588,21 @@ model Address {
 
 // ─── Agent Applications (Day 38 — UC-32/33) ─────────────────────────
 model AgentApplication {
-  id                   Int      @id @default(autoincrement())
-  userId               Int      @map("user_id")
-  applicantType        String   @default("INDIVIDUAL") @map("applicant_type") // INDIVIDUAL | BUSINESS
-  businessName         String   @map("business_name")
-  taxCode              String?  @map("tax_code") // MST
-  address              String   @db.Text
-  expectedVehicleCount Int      @default(1) @map("expected_vehicle_count")
-  note                 String?  @db.Text
-  kycFileUrl           String?  @map("kyc_file_url")
-  status               String   @default("PENDING") // PENDING | APPROVED | REJECTED
-  reviewedBy           Int?     @map("reviewed_by")
-  reviewNote           String?  @map("review_note") @db.Text
+  id                   Int       @id @default(autoincrement())
+  userId               Int       @map("user_id")
+  applicantType        String    @default("INDIVIDUAL") @map("applicant_type") // INDIVIDUAL | BUSINESS
+  businessName         String    @map("business_name")
+  taxCode              String?   @map("tax_code") // MST
+  address              String    @db.Text
+  expectedVehicleCount Int       @default(1) @map("expected_vehicle_count")
+  note                 String?   @db.Text
+  kycFileUrl           String?   @map("kyc_file_url")
+  status               String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedBy           Int?      @map("reviewed_by")
+  reviewNote           String?   @map("review_note") @db.Text
   reviewedAt           DateTime? @map("reviewed_at")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @updatedAt @map("updated_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -643,25 +647,25 @@ model SosRequest {
 // ─── B2B: Corporate Clients (UC-61+) ────────────────────────────────
 // Default AssetHub price table lives in priceConfig (JSON string).
 model CorporateClient {
-  id              Int       @id @default(autoincrement())
-  name            String
-  taxCode         String    @unique @map("tax_code")
-  address         String?   @db.Text
-  contactName     String?   @map("contact_name")
-  contactPhone    String?   @map("contact_phone")
-  contactEmail    String?   @map("contact_email")
-  contractRef     String?   @map("contract_ref")
-  contractStart   DateTime? @map("contract_start")
-  contractEnd     DateTime? @map("contract_end")
-  creditLimit     Float     @default(0) @map("credit_limit")
-  paymentTermDays Int       @default(0) @map("payment_term_days")
+  id                      Int       @id @default(autoincrement())
+  name                    String
+  taxCode                 String    @unique @map("tax_code")
+  address                 String?   @db.Text
+  contactName             String?   @map("contact_name")
+  contactPhone            String?   @map("contact_phone")
+  contactEmail            String?   @map("contact_email")
+  contractRef             String?   @map("contract_ref")
+  contractStart           DateTime? @map("contract_start")
+  contractEnd             DateTime? @map("contract_end")
+  creditLimit             Float     @default(0) @map("credit_limit")
+  paymentTermDays         Int       @default(0) @map("payment_term_days")
   // JSON: { "4_5_seat": { half_day_0_100km, ... }, "7_seat": {...}, "16_seat": {...} }
-  priceConfig     String?   @map("price_config") @db.Text
-  isActive        Boolean   @default(true) @map("is_active")
+  priceConfig             String?   @map("price_config") @db.Text
+  isActive                Boolean   @default(true) @map("is_active")
   // ENT-Day 3 — true when confirmed CRITICAL SLA violations ≥ 2 in contract term
-  contractTerminationRisk Boolean @default(false) @map("contract_termination_risk")
-  createdAt       DateTime  @default(now()) @map("created_at")
-  updatedAt       DateTime  @updatedAt @map("updated_at")
+  contractTerminationRisk Boolean   @default(false) @map("contract_termination_risk")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   employees   CorporateEmployee[]
   bookings    CorporateBooking[]
@@ -728,31 +732,103 @@ model CorporateBooking {
   settlementId              Int?                   @map("settlement_id")
   finalAmount               Float?                 @map("final_amount")
   rejectReason              String?                @map("reject_reason") @db.Text
+  // ── Marketplace dispatch (supplier fulfillment) ──────────────────
+  supplierId                Int?                   @map("supplier_id")
+  supplierMemberId          Int?                   @map("supplier_member_id") // tài xế (member) được gán
+  dispatchedAt              DateTime?              @map("dispatched_at")
+  dispatchedBy              Int?                   @map("dispatched_by") // OtoRent admin userId
+  // Snapshot hoa hồng lúc dispatch — không đổi khi Supplier.commissionRate thay đổi sau
+  commissionRate            Float?                 @map("commission_rate")
+  commissionAmount          Float?                 @map("commission_amount") // tính khi settle = finalAmount × rate
+  supplierVehicleNote       String?                @map("supplier_vehicle_note") @db.Text
+  // Driver info handoff (supplier → OtoRent → DN); DN chỉ thấy sau khi release.
+  driverInfoReleasedAt      DateTime?              @map("driver_info_released_at")
+  driverInfoReleasedBy      Int?                   @map("driver_info_released_by") // OtoRent admin userId
+  releasedDriverInfo        String?                @map("released_driver_info") @db.Text // JSON: { fullName, phone, vehicleNote?, licensePlate? }
   createdAt                 DateTime               @default(now()) @map("created_at")
   updatedAt                 DateTime               @updatedAt @map("updated_at")
 
-  corporate  CorporateClient      @relation(fields: [corporateId], references: [id], onDelete: Cascade)
-  employee   CorporateEmployee    @relation(fields: [employeeId], references: [id])
-  vehicle    Vehicle?             @relation(fields: [vehicleId], references: [id])
-  expenses   TripExpense[]
-  bookingVAS BookingVAS[]
-  slaViolations SLAViolation[]
-  settlement CorporateSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  corporate      CorporateClient      @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  employee       CorporateEmployee    @relation(fields: [employeeId], references: [id])
+  vehicle        Vehicle?             @relation(fields: [vehicleId], references: [id])
+  expenses       TripExpense[]
+  bookingVAS     BookingVAS[]
+  slaViolations  SLAViolation[]
+  settlement     CorporateSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  supplier       Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierMember SupplierMember?      @relation(fields: [supplierMemberId], references: [id], onDelete: SetNull)
 
   @@index([corporateId, status])
   @@index([employeeId])
   @@index([settlementId])
+  @@index([supplierId])
   @@map("corporate_bookings")
 }
 
 enum CorporateBookingStatus {
   PENDING
   APPROVED
+  DISPATCHED
+  DRIVER_ASSIGNED
   IN_PROGRESS
   PENDING_CONFIRM
   CONFIRMED
   SETTLED
   CANCELLED
+}
+
+// ─── Marketplace: Suppliers (nhà cung xe) ───────────────────────────
+model Supplier {
+  id                     Int       @id @default(autoincrement())
+  name                   String
+  taxCode                String?   @unique @map("tax_code")
+  address                String?   @db.Text
+  contactName            String?   @map("contact_name")
+  contactPhone           String?   @map("contact_phone")
+  contactEmail           String?   @map("contact_email")
+  commissionRate         Float     @default(0.15) @map("commission_rate")
+  note                   String?   @db.Text
+  // Back-to-back contract obligations (HĐ CCDV Điều 3 — supplier is the real "Bên B")
+  contractRef            String?   @map("contract_ref")
+  contractStart          DateTime? @map("contract_start")
+  contractEnd            DateTime? @map("contract_end")
+  transportLicenseNo     String?   @map("transport_license_no")
+  criticalViolationCount Int       @default(0) @map("critical_violation_count")
+  terminationRisk        Boolean   @default(false) @map("termination_risk")
+  isActive               Boolean   @default(true) @map("is_active")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  members  SupplierMember[]
+  bookings CorporateBooking[]
+
+  @@index([isActive])
+  @@map("suppliers")
+}
+
+// ─── Marketplace: Supplier members (admin + drivers) ────────────────
+model SupplierMember {
+  id              Int       @id @default(autoincrement())
+  supplierId      Int       @map("supplier_id")
+  userId          Int?      @unique @map("user_id")
+  fullName        String?   @map("full_name")
+  isAdmin         Boolean   @default(false) @map("is_admin")
+  isActive        Boolean   @default(false) @map("is_active")
+  invitedPhone    String?   @map("invited_phone")
+  invitedEmail    String?   @map("invited_email")
+  inviteToken     String?   @unique @map("invite_token") @db.VarChar(128)
+  inviteExpiresAt DateTime? @map("invite_expires_at")
+  inviteUsedAt    DateTime? @map("invite_used_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  supplier Supplier           @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  user     User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
+  bookings CorporateBooking[]
+
+  @@index([supplierId])
+  @@index([inviteToken])
+  @@map("supplier_members")
 }
 
 // ─── B2B: Trip expenses (UC-66+) ────────────────────────────────────
@@ -929,19 +1005,19 @@ enum ViolationSeverity {
 
 // ─── ENT: Contract amendments (phụ lục HĐ) ────────────────────────
 model ContractAmendment {
-  id              Int      @id @default(autoincrement())
-  corporateId     Int      @map("corporate_id")
-  amendmentNo     String   @map("amendment_no")
-  title           String
-  content         String   @db.Text
-  effectiveDate   DateTime @map("effective_date")
-  documentUrl     String?  @map("document_url")
+  id               Int       @id @default(autoincrement())
+  corporateId      Int       @map("corporate_id")
+  amendmentNo      String    @map("amendment_no")
+  title            String
+  content          String    @db.Text
+  effectiveDate    DateTime  @map("effective_date")
+  documentUrl      String?   @map("document_url")
   // JSON partial priceConfig merge applied when both signed + effectiveDate reached
-  priceConfigDelta String? @map("price_config_delta") @db.Text
-  signedByA       Boolean  @default(false) @map("signed_by_a")
-  signedByB       Boolean  @default(false) @map("signed_by_b")
-  appliedAt       DateTime? @map("applied_at")
-  createdAt       DateTime @default(now()) @map("created_at")
+  priceConfigDelta String?   @map("price_config_delta") @db.Text
+  signedByA        Boolean   @default(false) @map("signed_by_a")
+  signedByB        Boolean   @default(false) @map("signed_by_b")
+  appliedAt        DateTime? @map("applied_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   corporate CorporateClient @relation(fields: [corporateId], references: [id], onDelete: Cascade)
 

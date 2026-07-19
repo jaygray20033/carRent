@@ -2,13 +2,21 @@
 import { z } from 'zod';
 
 export const createBookingSchema = z.object({
-  vehicleType: z.enum(['4_5_seat', '7_seat', '16_seat', '29_seat']),
+  vehicleType: z.enum(['4_5_seat', '7_seat', '16_seat', '29_seat', '34_seat', '45_seat']),
   rentalType: z.enum(['half_day', 'full_day']),
   estimatedKm: z.coerce.number().positive('Km ước tính phải > 0'),
   pickupAt: z.coerce.date(),
   returnAt: z.coerce.date(),
-  pickupAddress: z.string().trim().min(3).max(500),
-  dropoffAddress: z.string().trim().min(3).max(500),
+  pickupAddress: z
+    .string()
+    .trim()
+    .min(3, 'Điểm đón cần ít nhất 3 ký tự')
+    .max(500, 'Điểm đón tối đa 500 ký tự'),
+  dropoffAddress: z
+    .string()
+    .trim()
+    .min(3, 'Điểm trả cần ít nhất 3 ký tự')
+    .max(500, 'Điểm trả tối đa 500 ký tự'),
   purpose: z.string().trim().max(1000).optional().nullable(),
   vehicleId: z.coerce.number().int().positive().optional().nullable(),
 });
@@ -18,6 +26,8 @@ export const listBookingsQuerySchema = z.object({
     .enum([
       'PENDING',
       'APPROVED',
+      'DISPATCHED',
+      'DRIVER_ASSIGNED',
       'IN_PROGRESS',
       'PENDING_CONFIRM',
       'CONFIRMED',
@@ -84,6 +94,8 @@ export const adminListBookingsQuerySchema = z.object({
     .enum([
       'PENDING',
       'APPROVED',
+      'DISPATCHED',
+      'DRIVER_ASSIGNED',
       'IN_PROGRESS',
       'PENDING_CONFIRM',
       'CONFIRMED',
@@ -92,6 +104,11 @@ export const adminListBookingsQuerySchema = z.object({
     ])
     .optional(),
   driverId: z.coerce.number().int().positive().optional(),
+  supplierId: z.coerce.number().int().positive().optional(),
+  awaitingDriverRelease: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
   page: z.coerce.number().int().positive().optional(),

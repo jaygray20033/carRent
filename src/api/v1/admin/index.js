@@ -20,6 +20,7 @@ import adminCorporateBookingRoutes from './corporate-bookings/adminCorporateBook
 import adminSettlementRoutes from './settlements/adminSettlement.routes.js';
 import adminVasRoutes from './vas/adminVas.routes.js';
 import adminSlaViolationRoutes from './sla-violations/adminSlaViolation.routes.js';
+import adminSupplierRoutes from './suppliers/adminSupplier.routes.js';
 
 const router = Router();
 
@@ -44,5 +45,6 @@ router.use('/corporate-bookings', adminCorporateBookingRoutes);
 router.use('/settlements', adminSettlementRoutes);
 router.use('/vas', adminVasRoutes);
 router.use('/sla-violations', adminSlaViolationRoutes);
+router.use('/suppliers', adminSupplierRoutes);
 
 export default router;

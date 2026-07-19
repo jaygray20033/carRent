@@ -78,6 +78,42 @@ async function refreshTerminationRisk(corporateId) {
   return flags;
 }
 
+/**
+ * Marketplace: when a CRITICAL violation is confirmed on a supplier-fulfilled
+ * booking, accrue it on the Supplier (the real "Bên B" under HĐ CCDV Điều 3).
+ * ≥2 critical → terminationRisk = true, blocking further dispatches.
+ */
+async function refreshSupplierTerminationRisk(supplierId) {
+  if (!supplierId) return null;
+  const supplier = await prisma.supplier.findUnique({ where: { id: Number(supplierId) } });
+  if (!supplier) return null;
+
+  // Count confirmed CRITICAL violations on bookings fulfilled by this supplier
+  // within the supplier's active contract term (if set).
+  const where = {
+    isConfirmed: true,
+    severity: 'CRITICAL',
+    booking: { supplierId: Number(supplierId) },
+  };
+  if (supplier.contractStart) where.createdAt = { gte: supplier.contractStart };
+  if (supplier.contractEnd) {
+    where.createdAt = { ...(where.createdAt || {}), lte: supplier.contractEnd };
+  }
+
+  const criticalCount = await prisma.sLAViolation.count({ where });
+  const flags = evaluateTerminationRisk(criticalCount);
+
+  await prisma.supplier.update({
+    where: { id: supplier.id },
+    data: {
+      criticalViolationCount: criticalCount,
+      terminationRisk: flags.contractTerminationRisk,
+    },
+  });
+
+  return { supplierId: supplier.id, criticalCount, ...flags };
+}
+
 export const slaService = {
   async createSla(corporateId, data) {
     const client = await prisma.corporateClient.findUnique({
@@ -119,6 +155,28 @@ export const slaService = {
       where: { corporateId: client.id },
       orderBy: { id: 'asc' },
     });
+  },
+
+  /** Corporate portal — list own company's SLA catalog (+ risk flags). */
+  async listMySla(membership) {
+    const items = await this.listSla(membership.corporateId);
+    const client = await prisma.corporateClient.findUnique({
+      where: { id: membership.corporateId },
+      select: {
+        id: true,
+        contractTerminationRisk: true,
+        contractStart: true,
+        contractEnd: true,
+      },
+    });
+    const report = await this.getSlaReport(membership.corporateId);
+    return {
+      items,
+      contractTerminationRisk: Boolean(client?.contractTerminationRisk),
+      warningFlag: report.warningFlag,
+      warningMessage: report.warningMessage,
+      criticalCount: report.criticalCount,
+    };
   },
 
   async updateSla(corporateId, slaId, data) {
@@ -228,6 +286,79 @@ export const slaService = {
     }));
   },
 
+  /**
+   * OtoRent Admin queue — all SLA reports submitted by enterprises.
+   * Default: pending confirmation (isConfirmed=false).
+   */
+  async adminListViolations({
+    isConfirmed,
+    severity,
+    corporateId,
+    page = 1,
+    size = 20,
+  } = {}) {
+    const where = {};
+    if (isConfirmed === true || isConfirmed === false) where.isConfirmed = isConfirmed;
+    if (severity) where.severity = severity;
+    if (corporateId) {
+      where.booking = { corporateId: Number(corporateId) };
+    }
+
+    const take = Math.min(Math.max(Number(size) || 20, 1), 100);
+    const skip = (Math.max(Number(page) || 1, 1) - 1) * take;
+
+    const [total, items] = await Promise.all([
+      prisma.sLAViolation.count({ where }),
+      prisma.sLAViolation.findMany({
+        where,
+        include: {
+          sla: true,
+          booking: {
+            select: {
+              id: true,
+              status: true,
+              corporateId: true,
+              pickupAt: true,
+              returnAt: true,
+              pickupAddress: true,
+              dropoffAddress: true,
+              vehicleType: true,
+              supplierId: true,
+              corporate: {
+                select: {
+                  id: true,
+                  name: true,
+                  taxCode: true,
+                  contractTerminationRisk: true,
+                },
+              },
+              employee: {
+                select: {
+                  id: true,
+                  employeeCode: true,
+                  user: { select: { fullName: true, phone: true, email: true } },
+                },
+              },
+            },
+          },
+        },
+        orderBy: [{ isConfirmed: 'asc' }, { createdAt: 'desc' }],
+        skip,
+        take,
+      }),
+    ]);
+
+    return {
+      items: items.map((v) => ({
+        ...v,
+        evidenceUrls: v.evidenceUrls ? JSON.parse(v.evidenceUrls) : [],
+      })),
+      total,
+      page: Math.max(Number(page) || 1, 1),
+      size: take,
+    };
+  },
+
   async confirmViolation(violationId, { resolution } = {}) {
     const violation = await prisma.sLAViolation.findUnique({
       where: { id: Number(violationId) },
@@ -258,6 +389,20 @@ export const slaService = {
 
     const corporateId = violation.booking.corporateId;
     const flags = await refreshTerminationRisk(corporateId);
+
+    // Marketplace: also accrue CRITICAL onto the fulfilling supplier (HĐ CCDV Điều 3).
+    let supplierRisk = null;
+    if (violation.severity === 'CRITICAL' && violation.booking.supplierId) {
+      supplierRisk = await refreshSupplierTerminationRisk(violation.booking.supplierId);
+      if (supplierRisk?.contractTerminationRisk) {
+        await notifyOtorentAdmins({
+          type: 'SUPPLIER_TERMINATION_RISK',
+          title: `Supplier #${supplierRisk.supplierId} — nguy cơ chấm dứt HĐ`,
+          body: `Đã có ${supplierRisk.criticalCount} vi phạm CRITICAL. Không dispatch thêm cho nhà cung cấp này.`,
+          link: `/admin/suppliers/${supplierRisk.supplierId}`,
+        }).catch(() => {});
+      }
+    }
 
     // Auto-alert on CRITICAL confirm
     if (violation.severity === 'CRITICAL') {
@@ -304,6 +449,7 @@ export const slaService = {
         evidenceUrls: updated.evidenceUrls ? JSON.parse(updated.evidenceUrls) : [],
       },
       risk: flags,
+      supplierRisk,
     };
   },
 

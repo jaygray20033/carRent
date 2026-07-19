@@ -24,12 +24,16 @@ async function main() {
     { code: 'ADMIN', name: 'Quản trị viên', description: 'Toàn quyền hệ thống' },
     { code: 'OPERATOR', name: 'Nhân viên vận hành', description: 'Quản lý xe & đơn thuê' },
     { code: 'AGENT', name: 'Đại lý', description: 'Đối tác cung cấp xe' },
+    { code: 'SUPPLIER_ADMIN', name: 'Quản trị nhà cung cấp', description: 'Quản lý member, nhận đơn dispatch, gán tài xế' },
+    { code: 'SUPPLIER_DRIVER', name: 'Tài xế nhà cung cấp', description: 'Xem chuyến được gán, start/complete, điền thông tin' },
   ];
   for (const r of roles) {
     await prisma.role.upsert({ where: { code: r.code }, update: {}, create: r });
   }
   const adminRole = await prisma.role.findUnique({ where: { code: 'ADMIN' } });
   const customerRole = await prisma.role.findUnique({ where: { code: 'CUSTOMER' } });
+  const supplierAdminRole = await prisma.role.findUnique({ where: { code: 'SUPPLIER_ADMIN' } });
+  const supplierDriverRole = await prisma.role.findUnique({ where: { code: 'SUPPLIER_DRIVER' } });
   console.log('  ✓ Roles');
 
   // 2) Users
@@ -1151,6 +1155,112 @@ async function main() {
     },
   });
   console.log('  ✓ B2B Corporate (AssetHub + 2 employees + default price config)');
+
+  // Marketplace Phase A — demo supplier + SUPPLIER_ADMIN + SUPPLIER_DRIVER
+  const supplier = await prisma.supplier.upsert({
+    where: { taxCode: '0318127382' },
+    update: {
+      name: 'Nhà xe AssetHub Fleet',
+      isActive: true,
+      commissionRate: 0.15,
+      contractRef: 'HĐ-SP-2026/001',
+      transportLicenseNo: 'VT-HCM-2026-001',
+    },
+    create: {
+      name: 'Nhà xe AssetHub Fleet',
+      taxCode: '0318127382',
+      address: 'B52-53, Đường D6, Khu dân cư Tân An Huy, Xã Nhà Bè, TP.HCM',
+      contactName: 'Trần Anh Huy',
+      contactPhone: '0912623203',
+      contactEmail: 'fleet@assethub.vn',
+      commissionRate: 0.15,
+      note: 'Demo supplier — vùng HCM/HN, mạnh xe 4-16 chỗ',
+      contractRef: 'HĐ-SP-2026/001',
+      contractStart: new Date('2026-01-01'),
+      contractEnd: new Date('2026-12-31'),
+      transportLicenseNo: 'VT-HCM-2026-001',
+      isActive: true,
+    },
+  });
+
+  const supplierAdminHash = await bcrypt.hash('SupplierAdmin@123', saltRounds);
+  const supplierAdminUser = await prisma.user.upsert({
+    where: { phone: '0909000444' },
+    update: {
+      roleId: supplierAdminRole.id,
+      status: 'ACTIVE',
+    },
+    create: {
+      roleId: supplierAdminRole.id,
+      fullName: 'Supplier Admin Fleet',
+      phone: '0909000444',
+      email: 'supplier-admin@assethub.vn',
+      passwordHash: supplierAdminHash,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+      phoneVerifiedAt: new Date(),
+    },
+  });
+
+  const supplierDriverHash = await bcrypt.hash('SupplierDriver@123', saltRounds);
+  const supplierDriverUser = await prisma.user.upsert({
+    where: { phone: '0909000555' },
+    update: {
+      roleId: supplierDriverRole.id,
+      status: 'ACTIVE',
+    },
+    create: {
+      roleId: supplierDriverRole.id,
+      fullName: 'Supplier Driver One',
+      phone: '0909000555',
+      email: 'supplier-driver@assethub.vn',
+      passwordHash: supplierDriverHash,
+      status: 'ACTIVE',
+      emailVerifiedAt: new Date(),
+      phoneVerifiedAt: new Date(),
+    },
+  });
+
+  await prisma.supplierMember.upsert({
+    where: { userId: supplierAdminUser.id },
+    update: {
+      supplierId: supplier.id,
+      isAdmin: true,
+      isActive: true,
+      fullName: supplierAdminUser.fullName,
+    },
+    create: {
+      supplierId: supplier.id,
+      userId: supplierAdminUser.id,
+      fullName: supplierAdminUser.fullName,
+      isAdmin: true,
+      isActive: true,
+      invitedPhone: supplierAdminUser.phone,
+      invitedEmail: supplierAdminUser.email,
+      inviteUsedAt: new Date(),
+    },
+  });
+
+  await prisma.supplierMember.upsert({
+    where: { userId: supplierDriverUser.id },
+    update: {
+      supplierId: supplier.id,
+      isAdmin: false,
+      isActive: true,
+      fullName: supplierDriverUser.fullName,
+    },
+    create: {
+      supplierId: supplier.id,
+      userId: supplierDriverUser.id,
+      fullName: supplierDriverUser.fullName,
+      isAdmin: false,
+      isActive: true,
+      invitedPhone: supplierDriverUser.phone,
+      invitedEmail: supplierDriverUser.email,
+      inviteUsedAt: new Date(),
+    },
+  });
+  console.log('  ✓ Marketplace Supplier (AssetHub Fleet + admin + driver)');
 
   // ENT-Day 1 — VAS catalog + AssetHub SLA defaults (Điều 3 HĐ)
   const defaultVAS = [

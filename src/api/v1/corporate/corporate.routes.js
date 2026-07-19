@@ -80,6 +80,14 @@ router.get(
   corporateController.myVasPricing
 );
 
+// ENT-Day 5 — my company's SLA catalog + risk flags.
+router.get(
+  '/me/sla',
+  authenticate,
+  requireCorporateEmployee,
+  corporateController.listMySla
+);
+
 // ENT-Day 3 — amendments for my company.
 router.get(
   '/me/amendments',

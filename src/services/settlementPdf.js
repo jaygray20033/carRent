@@ -44,21 +44,41 @@ export function buildSettlementPdf({ settlement, corporate, bookings = [] }) {
 
     // Table header
     doc.fontSize(9).text(
-      'Ngay | Nhan vien | Loai xe | Diem di → den | Base | Expenses | Tong',
+      'Ngay | Nhan vien | Loai xe | Diem di → den | Base | VAS | Expenses | Tong',
       { underline: true }
     );
     doc.moveDown(0.3);
 
+    let totalVas = 0;
     for (const b of bookings) {
       const empName = b.employee?.user?.fullName || b.employee?.employeeCode || `#${b.employeeId}`;
       const date = dmy(b.completedAt || b.pickupAt);
-      const line = `${date} | ${empName} | ${b.vehicleType} | ${String(b.pickupAddress).slice(0, 20)} → ${String(b.dropoffAddress).slice(0, 20)} | ${fmt(b._line?.basePrice ?? b.basePrice)} | ${fmt(b._line?.expenseTotal ?? 0)} | ${fmt(b._line?.total ?? b.finalAmount ?? b.basePrice)}`;
+      const vasAmount = Number(b._line?.vasTotal ?? 0);
+      totalVas += vasAmount;
+      const line = `${date} | ${empName} | ${b.vehicleType} | ${String(b.pickupAddress).slice(0, 20)} → ${String(b.dropoffAddress).slice(0, 20)} | ${fmt(b._line?.basePrice ?? b.basePrice)} | ${fmt(vasAmount)} | ${fmt(b._line?.expenseTotal ?? 0)} | ${fmt(b._line?.total ?? b.finalAmount ?? b.basePrice)}`;
       doc.text(line, { width: 520 });
+
+      // ENT-Day 5 — separate VAS section per booking when present
+      const vasLines = b._line?.vas || b.bookingVAS || [];
+      if (Array.isArray(vasLines) && vasLines.length > 0) {
+        doc.fontSize(8).text('  VAS:', { continued: false });
+        for (const v of vasLines) {
+          if (v.status === 'CANCELLED') continue;
+          const name = v.name || v.vas?.name || 'VAS';
+          const hc = v.headcount ?? 1;
+          const total = v.total ?? v.totalPrice ?? 0;
+          doc.text(`    - ${name} x${hc}: ${fmt(total)}`);
+        }
+        doc.fontSize(9);
+      }
     }
 
     doc.moveDown();
     doc.fontSize(11);
     doc.text(`Tong base: ${fmt(settlement.totalBaseAmount)}`);
+    if (totalVas > 0 || Number(settlement.totalVas || 0) > 0) {
+      doc.text(`Tong dich vu gia tang (VAS): ${fmt(settlement.totalVas ?? totalVas)}`);
+    }
     doc.text(`Tong chi phi phat sinh: ${fmt(settlement.totalExpenses)}`);
     doc.text(`VAT 10%: ${fmt(settlement.totalVat)}`);
     doc.fontSize(12).text(`TONG CONG: ${fmt(settlement.totalAmount)}`, { underline: true });
