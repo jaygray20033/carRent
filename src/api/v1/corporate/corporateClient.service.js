@@ -42,6 +42,56 @@ function serializeClient(client) {
 }
 
 export const corporateClientService = {
+  async selfRegister(userId, data) {
+    const taxCode = validateTaxCode(data.taxCode);
+    const [existingMembership, existingTaxCode, user] = await Promise.all([
+      prisma.corporateEmployee.findUnique({ where: { userId: Number(userId) } }),
+      prisma.corporateClient.findUnique({ where: { taxCode } }),
+      prisma.user.findUnique({
+        where: { id: Number(userId) },
+        select: { id: true, fullName: true, phone: true, email: true },
+      }),
+    ]);
+    if (existingMembership) {
+      throw new ConflictError('Bạn đã thuộc một doanh nghiệp', 'ALREADY_CORPORATE_MEMBER');
+    }
+    if (existingTaxCode) {
+      throw new ConflictError('Mã số thuế đã tồn tại', 'TAX_CODE_CONFLICT');
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const client = await tx.corporateClient.create({
+        data: {
+          name: data.name,
+          taxCode,
+          address: data.address,
+          contactName: data.contactName || user?.fullName || null,
+          contactPhone: data.contactPhone || user?.phone || null,
+          contactEmail: data.contactEmail || user?.email || null,
+          creditLimit: 0,
+          paymentTermDays: 0,
+          priceConfig: JSON.stringify(DEFAULT_CORPORATE_PRICE_CONFIG),
+          isActive: true,
+        },
+      });
+      const membership = await tx.corporateEmployee.create({
+        data: {
+          corporateId: client.id,
+          userId: Number(userId),
+          department: data.department || null,
+          isAdmin: true,
+          isActive: true,
+          invitedPhone: user?.phone || data.contactPhone || null,
+          invitedEmail: user?.email || data.contactEmail || null,
+          inviteUsedAt: new Date(),
+        },
+      });
+      return { client, membership };
+    });
+
+    return { ...result, client: serializeClient(result.client) };
+  },
+
   async create(data) {
     const taxCode = validateTaxCode(data.taxCode);
 

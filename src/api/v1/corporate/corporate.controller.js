@@ -68,6 +68,15 @@ export const corporateController = {
 
   // ── Corporate portal ─────────────────────────────────────────────
 
+  selfRegister: asyncHandler(async (req, res) => {
+    const result = await corporateClientService.selfRegister(req.user.id, req.body);
+    return created(
+      res,
+      { company: result.client, membership: result.membership },
+      'Đăng ký doanh nghiệp thành công'
+    );
+  }),
+
   myCompany: asyncHandler(async (req, res) => {
     const result = await corporateEmployeeService.getMyCompany(req.user.id);
     return success(res, result);

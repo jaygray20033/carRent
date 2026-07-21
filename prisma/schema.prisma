@@ -60,6 +60,7 @@ model User {
   sosRequests        SosRequest[]
   corporateEmployee  CorporateEmployee?
   supplierMember     SupplierMember?
+  supplierApplications SupplierApplication[]
 
   @@map("users")
 }
@@ -745,23 +746,27 @@ model CorporateBooking {
   driverInfoReleasedAt      DateTime?              @map("driver_info_released_at")
   driverInfoReleasedBy      Int?                   @map("driver_info_released_by") // OtoRent admin userId
   releasedDriverInfo        String?                @map("released_driver_info") @db.Text // JSON: { fullName, phone, vehicleNote?, licensePlate? }
+  // Payout chiều OtoRent → Supplier (mục 7.4) — kỳ payout gom booking đã settle.
+  supplierSettlementId      Int?                   @map("supplier_settlement_id")
   createdAt                 DateTime               @default(now()) @map("created_at")
   updatedAt                 DateTime               @updatedAt @map("updated_at")
 
-  corporate      CorporateClient      @relation(fields: [corporateId], references: [id], onDelete: Cascade)
-  employee       CorporateEmployee    @relation(fields: [employeeId], references: [id])
-  vehicle        Vehicle?             @relation(fields: [vehicleId], references: [id])
-  expenses       TripExpense[]
-  bookingVAS     BookingVAS[]
-  slaViolations  SLAViolation[]
-  settlement     CorporateSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
-  supplier       Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
-  supplierMember SupplierMember?      @relation(fields: [supplierMemberId], references: [id], onDelete: SetNull)
+  corporate          CorporateClient      @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+  employee           CorporateEmployee    @relation(fields: [employeeId], references: [id])
+  vehicle            Vehicle?             @relation(fields: [vehicleId], references: [id])
+  expenses           TripExpense[]
+  bookingVAS         BookingVAS[]
+  slaViolations      SLAViolation[]
+  settlement         CorporateSettlement? @relation(fields: [settlementId], references: [id], onDelete: SetNull)
+  supplier           Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierMember     SupplierMember?      @relation(fields: [supplierMemberId], references: [id], onDelete: SetNull)
+  supplierSettlement SupplierSettlement?  @relation(fields: [supplierSettlementId], references: [id], onDelete: SetNull)
 
   @@index([corporateId, status])
   @@index([employeeId])
   @@index([settlementId])
   @@index([supplierId])
+  @@index([supplierSettlementId])
   @@map("corporate_bookings")
 }
 
@@ -799,8 +804,9 @@ model Supplier {
   createdAt              DateTime  @default(now()) @map("created_at")
   updatedAt              DateTime  @updatedAt @map("updated_at")
 
-  members  SupplierMember[]
-  bookings CorporateBooking[]
+  members     SupplierMember[]
+  bookings    CorporateBooking[]
+  settlements SupplierSettlement[]
 
   @@index([isActive])
   @@map("suppliers")
@@ -829,6 +835,81 @@ model SupplierMember {
   @@index([supplierId])
   @@index([inviteToken])
   @@map("supplier_members")
+}
+
+// ─── Marketplace: Supplier payout settlements ─────────────────────────
+model SupplierSettlement {
+  id                       Int                      @id @default(autoincrement())
+  supplierId               Int                      @map("supplier_id")
+  periodStart              DateTime                 @map("period_start")
+  periodEnd                DateTime                 @map("period_end")
+  totalFinalAmount         Float                    @map("total_final_amount")
+  totalCommissionAmount    Float                    @map("total_commission_amount")
+  supplierPayout           Float                    @map("supplier_payout")
+  status                   SupplierSettlementStatus @default(PENDING_DOCUMENTS)
+  vatInvoiceRef            String?                  @map("vat_invoice_ref")
+  vatInvoiceUrl            String?                  @map("vat_invoice_url") @db.Text
+  statementUrl             String?                  @map("statement_url") @db.Text
+  dispatchRecordsUrl       String?                  @map("dispatch_records_url") @db.Text
+  supportingDocumentsUrl   String?                  @map("supporting_documents_url") @db.Text
+  rejectionReason          String?                  @map("rejection_reason") @db.Text
+  paymentReference         String?                  @map("payment_reference")
+  note                     String?                  @db.Text
+  submittedAt              DateTime?                @map("submitted_at")
+  verifiedAt               DateTime?                @map("verified_at")
+  verifiedBy               Int?                     @map("verified_by")
+  paidAt                   DateTime?                @map("paid_at")
+  paidBy                   Int?                     @map("paid_by")
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+
+  supplier Supplier           @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  bookings CorporateBooking[]
+
+  @@index([supplierId, status])
+  @@index([periodStart, periodEnd])
+  @@map("supplier_settlements")
+}
+
+enum SupplierSettlementStatus {
+  PENDING_DOCUMENTS
+  DOCUMENTS_SUBMITTED
+  DOCUMENTS_REJECTED
+  VERIFIED
+  PAID
+}
+
+// ─── Marketplace: Public supplier partner applications (chờ duyệt) ────
+// Nhà xe đăng ký công khai → hàng chờ admin duyệt. Khi APPROVED tạo Supplier
+// + SupplierMember (SUPPLIER_ADMIN) cho người nộp đơn.
+model SupplierApplication {
+  id                 Int       @id @default(autoincrement())
+  userId             Int       @map("user_id")
+  applicantType      String    @default("BUSINESS") @map("applicant_type") // INDIVIDUAL | BUSINESS
+  companyName        String    @map("company_name")
+  taxCode            String?   @map("tax_code")
+  contactName        String?   @map("contact_name")
+  contactPhone       String?   @map("contact_phone")
+  contactEmail       String?   @map("contact_email")
+  address            String    @db.Text
+  transportLicenseNo String?   @map("transport_license_no") // Giấy phép KDVT (NĐ 10/2020)
+  fleetSize          Int       @default(1) @map("fleet_size")
+  vehicleTypes       String?   @map("vehicle_types") @db.Text // "4_5_seat,7_seat,16_seat"
+  note               String?   @db.Text
+  licenseFileUrl     String?   @map("license_file_url") // Giấy phép / ĐKKD
+  status             String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedBy         Int?      @map("reviewed_by")
+  reviewNote         String?   @map("review_note") @db.Text
+  reviewedAt         DateTime? @map("reviewed_at")
+  supplierId         Int?      @map("supplier_id") // set khi duyệt
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("supplier_applications")
 }
 
 // ─── B2B: Trip expenses (UC-66+) ────────────────────────────────────

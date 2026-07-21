@@ -995,6 +995,34 @@ describe('Supplier Marketplace — commission-report / LDX / filters / SLA', () 
     });
   });
 
+  test('export dispatch-record as PDF (?format=pdf)', async () => {
+    const res = await request(app)
+      .get(`${BASE}/admin/corporate-bookings/${booking.id}/dispatch-record`)
+      .query({ format: 'pdf' })
+      .set('Authorization', `Bearer ${otorentAdminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/application\/pdf/);
+    expect(res.headers['content-disposition']).toMatch(/LDX-/);
+    // PDF magic bytes %PDF
+    const buf = res.body instanceof Buffer ? res.body : Buffer.from(res.body);
+    expect(buf.slice(0, 4).toString()).toBe('%PDF');
+  });
+
+  test('export dispatch-record as CSV (?format=csv)', async () => {
+    const res = await request(app)
+      .get(`${BASE}/admin/corporate-bookings/${booking.id}/dispatch-record`)
+      .query({ format: 'csv' })
+      .set('Authorization', `Bearer ${otorentAdminToken}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toMatch(/text\/csv/);
+    const text = res.text || res.body.toString();
+    expect(text).toMatch(/dispatchRecordCode/);
+    expect(text).toMatch(new RegExp(`LDX-${booking.id}-`));
+    // commission 132000 + payout 528000 present in the row
+    expect(text).toMatch(/132000/);
+    expect(text).toMatch(/528000/);
+  });
+
   test('start/complete notify Employee + Corp Admin (white-label)', async () => {
     // Fresh booking through release so we can start
     const createRes = await request(app)
@@ -1048,5 +1076,163 @@ describe('Supplier Marketplace — commission-report / LDX / filters / SLA', () 
       orderBy: { createdAt: 'desc' },
     });
     expect(doneNotif).toBeTruthy();
+  });
+});
+
+describe('Supplier Marketplace — payout (SupplierSettlement) workflow', () => {
+  // The `booking` from the full-flow suite is SETTLED with finalAmount 660k /
+  // commission 132k / supplierPayout 528k, completedAt anchored to ~now.
+  // A payout period spanning the last day → next day captures exactly it.
+  const period = () => ({
+    periodStart: new Date(Date.now() - 86400_000).toISOString().slice(0, 10),
+    periodEnd: new Date(Date.now() + 86400_000).toISOString().slice(0, 10),
+  });
+  let settlementId;
+
+  const validDocs = {
+    vatInvoiceRef: 'HĐ-2026-000123',
+    vatInvoiceUrl: 'https://docs.example.com/vat/123.pdf',
+    statementUrl: 'https://docs.example.com/bangke/123.xlsx',
+    dispatchRecordsUrl: 'https://docs.example.com/ldx/123.zip',
+  };
+
+  test('admin creates payout period → PENDING_DOCUMENTS with correct totals', async () => {
+    const res = await request(app)
+      .post(`${BASE}/admin/suppliers/${supplier.id}/settlements`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send(period());
+    expect(res.status).toBe(201);
+    const s = res.body.data.settlement;
+    settlementId = s.id;
+    expect(s.status).toBe('PENDING_DOCUMENTS');
+    expect(s.totalFinalAmount).toBe(660_000);
+    expect(s.totalCommissionAmount).toBe(132_000);
+    expect(s.supplierPayout).toBe(528_000);
+    expect(s.bookings.some((b) => b.id === booking.id)).toBe(true);
+  });
+
+  test('booking is attached to the payout period (supplierSettlementId set)', async () => {
+    const b = await prisma.corporateBooking.findUnique({ where: { id: booking.id } });
+    expect(b.supplierSettlementId).toBe(settlementId);
+  });
+
+  test('overlapping period is rejected (SUPPLIER_SETTLEMENT_PERIOD_OVERLAP)', async () => {
+    const res = await request(app)
+      .post(`${BASE}/admin/suppliers/${supplier.id}/settlements`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send(period());
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe(
+      'SUPPLIER_SETTLEMENT_PERIOD_OVERLAP'
+    );
+  });
+
+  test('supplier can view own payout period; foreign supplier is forbidden', async () => {
+    const mine = await request(app)
+      .get(`${BASE}/supplier/settlements/${settlementId}`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`);
+    expect(mine.status).toBe(200);
+    expect(mine.body.data.settlement.id).toBe(settlementId);
+
+    // Admin scoping: a mismatched supplier id in the path must 403.
+    const otherSupplier = await prisma.supplier.create({
+      data: { name: `Other MKT ${stamp}`, isActive: true },
+    });
+    const cross = await request(app)
+      .get(`${BASE}/admin/suppliers/${otherSupplier.id}/settlements/${settlementId}`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`);
+    expect(cross.status).toBe(403);
+    await prisma.supplier.delete({ where: { id: otherSupplier.id } }).catch(() => {});
+  });
+
+  test('verify before documents submitted → 409 INVALID_STATUS_TRANSITION', async () => {
+    const res = await request(app)
+      .put(`${BASE}/admin/suppliers/${supplier.id}/settlements/${settlementId}/verify`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send({});
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe('INVALID_STATUS_TRANSITION');
+  });
+
+  test('non-admin supplier member cannot submit documents', async () => {
+    const res = await request(app)
+      .post(`${BASE}/supplier/settlements/${settlementId}/documents`)
+      .set('Authorization', `Bearer ${supplierDriverToken}`)
+      .send(validDocs);
+    // requireSupplierAdmin blocks the driver (403).
+    expect(res.status).toBe(403);
+  });
+
+  test('supplier admin submits documents → DOCUMENTS_SUBMITTED', async () => {
+    const res = await request(app)
+      .post(`${BASE}/supplier/settlements/${settlementId}/documents`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send(validDocs);
+    expect(res.status).toBe(200);
+    expect(res.body.data.settlement.status).toBe('DOCUMENTS_SUBMITTED');
+    expect(res.body.data.settlement.vatInvoiceRef).toBe(validDocs.vatInvoiceRef);
+  });
+
+  test('mark-paid before verify → 409 INVALID_STATUS_TRANSITION', async () => {
+    const res = await request(app)
+      .put(`${BASE}/admin/suppliers/${supplier.id}/settlements/${settlementId}/mark-paid`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send({ paymentReference: 'EARLY-PAY' });
+    expect(res.status).toBe(409);
+  });
+
+  test('admin rejects documents → DOCUMENTS_REJECTED, supplier resubmits', async () => {
+    const rej = await request(app)
+      .put(`${BASE}/admin/suppliers/${supplier.id}/settlements/${settlementId}/reject`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send({ reason: 'Bảng kê thiếu số chuyến' });
+    expect(rej.status).toBe(200);
+    expect(rej.body.data.settlement.status).toBe('DOCUMENTS_REJECTED');
+    expect(rej.body.data.settlement.rejectionReason).toMatch(/Bảng kê/);
+
+    const resub = await request(app)
+      .post(`${BASE}/supplier/settlements/${settlementId}/documents`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send(validDocs);
+    expect(resub.status).toBe(200);
+    expect(resub.body.data.settlement.status).toBe('DOCUMENTS_SUBMITTED');
+  });
+
+  test('admin verifies → VERIFIED then mark-paid → PAID', async () => {
+    const ver = await request(app)
+      .put(`${BASE}/admin/suppliers/${supplier.id}/settlements/${settlementId}/verify`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send({});
+    expect(ver.status).toBe(200);
+    expect(ver.body.data.settlement.status).toBe('VERIFIED');
+    expect(ver.body.data.settlement.verifiedBy).toBe(otorentAdmin.id);
+
+    const paid = await request(app)
+      .put(`${BASE}/admin/suppliers/${supplier.id}/settlements/${settlementId}/mark-paid`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send({ paymentReference: 'CK-2026-07-21-001' });
+    expect(paid.status).toBe(200);
+    expect(paid.body.data.settlement.status).toBe('PAID');
+    expect(paid.body.data.settlement.paymentReference).toBe('CK-2026-07-21-001');
+    expect(paid.body.data.settlement.paidAt).toBeTruthy();
+  });
+
+  test('supplier admin sees PAID period in own list', async () => {
+    const res = await request(app)
+      .get(`${BASE}/supplier/settlements`)
+      .query({ status: 'PAID' })
+      .set('Authorization', `Bearer ${supplierAdminToken}`);
+    expect(res.status).toBe(200);
+    const list = res.body.data.items || res.body.data;
+    expect(list.some((x) => x.id === settlementId)).toBe(true);
+  });
+
+  test('creating a period with no eligible bookings → 422 NO_ELIGIBLE_BOOKINGS', async () => {
+    const res = await request(app)
+      .post(`${BASE}/admin/suppliers/${supplier.id}/settlements`)
+      .set('Authorization', `Bearer ${otorentAdminToken}`)
+      .send({ periodStart: '2020-01-01', periodEnd: '2020-01-31' });
+    expect(res.status).toBe(422);
+    expect(res.body.error?.code || res.body.code).toBe('NO_ELIGIBLE_BOOKINGS');
   });
 });

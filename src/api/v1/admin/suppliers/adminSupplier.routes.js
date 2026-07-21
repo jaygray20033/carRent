@@ -13,6 +13,11 @@ import {
   listSuppliersQuerySchema,
   inviteMemberSchema,
   updateMemberSchema,
+  createSupplierSettlementSchema,
+  listSupplierSettlementsQuerySchema,
+  adminSupplierSettlementParamSchema,
+  rejectSettlementDocumentsSchema,
+  markSupplierSettlementPaidSchema,
 } from './adminSupplier.validator.js';
 
 const router = Router();
@@ -67,6 +72,42 @@ router.get(
   '/:id/commission-report',
   validate(supplierIdParamSchema, 'params'),
   adminSupplierController.commissionReport
+);
+
+// ── Supplier payout settlements ──────────────────────────────────────
+router.get(
+  '/:id/settlements',
+  validate(supplierIdParamSchema, 'params'),
+  validate(listSupplierSettlementsQuerySchema, 'query'),
+  adminSupplierController.listSettlements
+);
+router.post(
+  '/:id/settlements',
+  validate(supplierIdParamSchema, 'params'),
+  validate(createSupplierSettlementSchema, 'body'),
+  adminSupplierController.createSettlement
+);
+router.get(
+  '/:id/settlements/:settlementId',
+  validate(adminSupplierSettlementParamSchema, 'params'),
+  adminSupplierController.getSettlement
+);
+router.put(
+  '/:id/settlements/:settlementId/verify',
+  validate(adminSupplierSettlementParamSchema, 'params'),
+  adminSupplierController.verifySettlement
+);
+router.put(
+  '/:id/settlements/:settlementId/reject',
+  validate(adminSupplierSettlementParamSchema, 'params'),
+  validate(rejectSettlementDocumentsSchema, 'body'),
+  adminSupplierController.rejectSettlement
+);
+router.put(
+  '/:id/settlements/:settlementId/mark-paid',
+  validate(adminSupplierSettlementParamSchema, 'params'),
+  validate(markSupplierSettlementPaidSchema, 'body'),
+  adminSupplierController.markSettlementPaid
 );
 
 export default router;

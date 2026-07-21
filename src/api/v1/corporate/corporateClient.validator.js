@@ -8,6 +8,16 @@ const taxCodeSchema = z
   .max(14)
   .regex(/^\d{10}(-?\d{0,3})?$/, 'Mã số thuế phải gồm 10–13 chữ số');
 
+export const selfRegisterCorporateSchema = z.object({
+  name: z.string().trim().min(2, 'Vui lòng nhập tên doanh nghiệp').max(200),
+  taxCode: taxCodeSchema,
+  address: z.string().trim().min(3, 'Vui lòng nhập địa chỉ').max(500),
+  contactName: z.string().trim().min(2).max(120).optional().or(z.literal('')),
+  contactPhone: z.string().trim().max(20).optional().or(z.literal('')),
+  contactEmail: z.string().trim().email('Email không hợp lệ').optional().or(z.literal('')),
+  department: z.string().trim().max(120).optional().or(z.literal('')),
+});
+
 export const createCorporateClientSchema = z.object({
   name: z.string().trim().min(2).max(200),
   taxCode: taxCodeSchema,
@@ -50,6 +60,7 @@ export const priceConfigSchema = z.object({
 });
 
 export default {
+  selfRegisterCorporateSchema,
   createCorporateClientSchema,
   updateCorporateClientSchema,
   listCorporateClientsQuerySchema,

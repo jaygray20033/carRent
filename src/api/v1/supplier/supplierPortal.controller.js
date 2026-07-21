@@ -4,6 +4,7 @@ import { success, created, paginated } from '../../../utils/apiResponse.js';
 import { parsePagination } from '../../../utils/pagination.js';
 import { supplierPortalService } from './supplierPortal.service.js';
 import { adminSupplierService } from '../admin/suppliers/adminSupplier.service.js';
+import { supplierSettlementService } from '../admin/suppliers/supplierSettlement.service.js';
 
 export const supplierPortalController = {
   me: asyncHandler(async (req, res) => {
@@ -104,6 +105,37 @@ export const supplierPortalController = {
       req.body
     );
     return success(res, { member }, 'Đã cập nhật thành viên');
+  }),
+
+  // ── Payout settlements (Supplier submits documents) ──────────────
+  listSettlements: asyncHandler(async (req, res) => {
+    const { page, size } = parsePagination(req.query, 20);
+    const result = await supplierSettlementService.listBySupplier(
+      req.supplierMembership.supplierId,
+      { status: req.query.status, page, size }
+    );
+    return paginated(res, result.items, {
+      total: result.total,
+      page: result.page,
+      limit: result.size,
+    });
+  }),
+
+  getSettlement: asyncHandler(async (req, res) => {
+    const settlement = await supplierSettlementService.getById(
+      req.params.settlementId,
+      req.supplierMembership.supplierId
+    );
+    return success(res, { settlement });
+  }),
+
+  submitSettlementDocuments: asyncHandler(async (req, res) => {
+    const settlement = await supplierSettlementService.submitDocuments(
+      req.supplierMembership,
+      req.params.settlementId,
+      req.body
+    );
+    return success(res, { settlement }, 'Đã nộp hồ sơ payout');
   }),
 
   // Invite accept — any authenticated user (not yet a member).

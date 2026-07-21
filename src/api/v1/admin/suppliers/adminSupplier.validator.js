@@ -80,6 +80,54 @@ export const acceptSupplierInviteSchema = z.object({
   token: z.string().trim().min(8).max(128),
 });
 
+// ── Supplier settlement / payout (Phase E) ──────────────────────────
+export const createSupplierSettlementSchema = z.object({
+  periodStart: z.coerce.date(),
+  periodEnd: z.coerce.date(),
+  note: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const listSupplierSettlementsQuerySchema = z.object({
+  status: z
+    .enum(['PENDING_DOCUMENTS', 'DOCUMENTS_SUBMITTED', 'DOCUMENTS_REJECTED', 'VERIFIED', 'PAID'])
+    .optional(),
+  page: z.coerce.number().int().positive().optional(),
+  size: z.coerce.number().int().positive().max(100).optional(),
+});
+
+export const supplierSettlementIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+export const adminSupplierSettlementParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  settlementId: z.coerce.number().int().positive(),
+});
+
+export const submitSettlementDocumentsSchema = z.object({
+  vatInvoiceRef: z.string().trim().min(1, 'Cần số hóa đơn GTGT').max(80),
+  vatInvoiceUrl: z.string().trim().url('URL hóa đơn không hợp lệ').max(1000),
+  statementUrl: z.string().trim().url('URL bảng kê không hợp lệ').max(1000),
+  dispatchRecordsUrl: z.string().trim().url('URL lệnh điều xe không hợp lệ').max(1000),
+  supportingDocumentsUrl: z
+    .string()
+    .trim()
+    .url('URL chứng từ không hợp lệ')
+    .max(1000)
+    .optional()
+    .nullable()
+    .or(z.literal('')),
+  note: z.string().trim().max(2000).optional().nullable(),
+});
+
+export const rejectSettlementDocumentsSchema = z.object({
+  reason: z.string().trim().min(1, 'Vui lòng nhập lý do').max(2000),
+});
+
+export const markSupplierSettlementPaidSchema = z.object({
+  paymentReference: z.string().trim().min(1, 'Cần mã giao dịch thanh toán').max(120),
+});
+
 export default {
   createSupplierSchema,
   updateSupplierSchema,
@@ -92,4 +140,11 @@ export default {
   recallSchema,
   releaseDriverInfoSchema,
   acceptSupplierInviteSchema,
+  supplierSettlementIdParamSchema,
+  adminSupplierSettlementParamSchema,
+  createSupplierSettlementSchema,
+  listSupplierSettlementsQuerySchema,
+  submitSettlementDocumentsSchema,
+  rejectSettlementDocumentsSchema,
+  markSupplierSettlementPaidSchema,
 };

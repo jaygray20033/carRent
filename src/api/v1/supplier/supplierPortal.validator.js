@@ -39,6 +39,10 @@ export const memberIdParamSchema = z.object({
   memberId: z.coerce.number().int().positive(),
 });
 
+export const settlementIdParamSchema = z.object({
+  settlementId: z.coerce.number().int().positive(),
+});
+
 export default {
   bookingIdParamSchema,
   listBookingsQuerySchema,
@@ -46,4 +50,5 @@ export default {
   rejectSchema,
   completeSchema,
   memberIdParamSchema,
+  settlementIdParamSchema,
 };

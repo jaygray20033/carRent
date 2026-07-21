@@ -18,6 +18,7 @@ import notificationRoutes from './notifications/notification.routes.js';
 import contactRoutes from './contact/contact.routes.js';
 import roadsideStationRoutes from './roadside-stations/roadsideStation.routes.js';
 import agentApplicationRoutes from './agent-applications/agentApplication.routes.js';
+import supplierApplicationRoutes from './supplier-applications/supplierApplication.routes.js';
 import sosRequestRoutes from './sos-requests/sosRequest.routes.js';
 import adminRoutes from './admin/index.js';
 import corporateRoutes from './corporate/corporate.routes.js';
@@ -81,6 +82,8 @@ router.use('/roadside-stations', roadsideStationRoutes);
 router.use('/', contactRoutes);
 // Agent-application router owns /agent-applications and /me/agent-application.
 router.use('/', agentApplicationRoutes);
+// Supplier-application router owns /supplier-applications and /me/supplier-application.
+router.use('/', supplierApplicationRoutes);
 router.use('/sos-requests', sosRequestRoutes);
 // ENT-Day 2 — public VAS catalog (active only).
 router.get('/vas', corporateController.listActiveVas);

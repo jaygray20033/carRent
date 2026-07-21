@@ -4,6 +4,7 @@ import { success, created, paginated } from '../../../../utils/apiResponse.js';
 import { parsePagination } from '../../../../utils/pagination.js';
 import { adminSupplierService } from './adminSupplier.service.js';
 import { dispatchService } from './dispatch.service.js';
+import { supplierSettlementService } from './supplierSettlement.service.js';
 
 export const adminSupplierController = {
   // ── Supplier CRUD ────────────────────────────────────────────────
@@ -108,8 +109,82 @@ export const adminSupplierController = {
   }),
 
   exportDispatchRecord: asyncHandler(async (req, res) => {
+    const format = String(req.query.format || 'json').toLowerCase();
+    if (format === 'pdf') {
+      const { buffer, filename } = await dispatchService.exportDispatchRecordPdf(
+        req.params.id
+      );
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(buffer);
+    }
+    if (format === 'csv') {
+      const { body, filename } = await dispatchService.exportDispatchRecordCsv(
+        req.params.id
+      );
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      return res.send(body);
+    }
     const record = await dispatchService.exportDispatchRecord(req.params.id);
     return success(res, { dispatchRecord: record });
+  }),
+
+  // ── Supplier settlement / payout (Phase E) ───────────────────────
+  createSettlement: asyncHandler(async (req, res) => {
+    const settlement = await supplierSettlementService.create(req.params.id, req.body);
+    return created(res, { settlement }, 'Đã tạo kỳ payout');
+  }),
+
+  listSettlements: asyncHandler(async (req, res) => {
+    const { page, size } = parsePagination(req.query, 20);
+    const result = await supplierSettlementService.listBySupplier(req.params.id, {
+      status: req.query.status,
+      page,
+      size,
+    });
+    return paginated(res, result.items, {
+      total: result.total,
+      page: result.page,
+      limit: result.size,
+    });
+  }),
+
+  getSettlement: asyncHandler(async (req, res) => {
+    const settlement = await supplierSettlementService.getById(
+      req.params.settlementId,
+      req.params.id
+    );
+    return success(res, { settlement });
+  }),
+
+  verifySettlement: asyncHandler(async (req, res) => {
+    await supplierSettlementService.getById(req.params.settlementId, req.params.id);
+    const settlement = await supplierSettlementService.verify(
+      req.params.settlementId,
+      req.user.id
+    );
+    return success(res, { settlement }, 'Đã xác minh hồ sơ payout');
+  }),
+
+  rejectSettlement: asyncHandler(async (req, res) => {
+    await supplierSettlementService.getById(req.params.settlementId, req.params.id);
+    const settlement = await supplierSettlementService.rejectDocuments(
+      req.params.settlementId,
+      req.body,
+      req.user.id
+    );
+    return success(res, { settlement }, 'Đã yêu cầu bổ sung hồ sơ');
+  }),
+
+  markSettlementPaid: asyncHandler(async (req, res) => {
+    await supplierSettlementService.getById(req.params.settlementId, req.params.id);
+    const settlement = await supplierSettlementService.markPaid(
+      req.params.settlementId,
+      req.body,
+      req.user.id
+    );
+    return success(res, { settlement }, 'Đã đánh dấu đã thanh toán');
   }),
 };
 

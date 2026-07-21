@@ -9,6 +9,10 @@ import {
 } from '../../../../utils/apiError.js';
 import { DEFAULT_COMMISSION_RATE } from '../../../../constants/supplier.js';
 import { notificationService } from '../../../../services/notificationService.js';
+import {
+  buildDispatchRecordPdf,
+  buildDispatchRecordCsv,
+} from '../../../../services/dispatchRecordPdf.js';
 
 const bookingInclude = {
   employee: {
@@ -384,9 +388,9 @@ export const dispatchService = {
    * Compute and persist commissionAmount when a booking is settled.
    * Called from settlementService.create for each booking that has a rate.
    */
-  async applyCommissionOnSettle(bookingIds) {
+  async applyCommissionOnSettle(bookingIds, db = prisma) {
     if (!bookingIds?.length) return 0;
-    const bookings = await prisma.corporateBooking.findMany({
+    const bookings = await db.corporateBooking.findMany({
       where: {
         id: { in: bookingIds.map(Number) },
         commissionRate: { not: null },
@@ -398,7 +402,7 @@ export const dispatchService = {
     for (const b of bookings) {
       const amount = computeCommissionAmount(b.finalAmount, b.commissionRate);
       if (amount == null) continue;
-      await prisma.corporateBooking.update({
+      await db.corporateBooking.update({
         where: { id: b.id },
         data: { commissionAmount: amount },
       });
@@ -493,6 +497,20 @@ export const dispatchService = {
         supplierPayout,
       },
     };
+  },
+
+  /** Lệnh điều xe as a downloadable PDF. */
+  async exportDispatchRecordPdf(bookingId) {
+    const record = await this.exportDispatchRecord(bookingId);
+    const buffer = await buildDispatchRecordPdf(record);
+    return { buffer, filename: `${record.dispatchRecordCode}.pdf`, record };
+  },
+
+  /** Lệnh điều xe as a downloadable CSV row. */
+  async exportDispatchRecordCsv(bookingId) {
+    const record = await this.exportDispatchRecord(bookingId);
+    const body = buildDispatchRecordCsv(record);
+    return { body, filename: `${record.dispatchRecordCode}.csv`, record };
   },
 };
 

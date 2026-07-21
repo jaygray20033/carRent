@@ -17,6 +17,7 @@ import {
   listEmployeesQuerySchema,
   employeeIdParamSchema,
 } from './corporateEmployee.validator.js';
+import { selfRegisterCorporateSchema } from './corporateClient.validator.js';
 import {
   createBookingSchema,
   listBookingsQuerySchema,
@@ -47,6 +48,15 @@ const amendmentIdOnlySchema = z.object({
 });
 
 const router = Router();
+
+// Self-registration — any authenticated user creates a company + becomes its admin.
+// Instant activation (no OtoRent approval). Blocks if already a member.
+router.post(
+  '/self-register',
+  authenticate,
+  validate(selfRegisterCorporateSchema, 'body'),
+  corporateController.selfRegister
+);
 
 // Invite accept — any authenticated user (not yet a member).
 router.post(

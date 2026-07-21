@@ -15,7 +15,7 @@ import { buildCostSummary } from '../../../services/tripExpenseCalculator.js';
 import { buildSettlementPdf } from '../../../services/settlementPdf.js';
 import { sendEmail } from '../../../integrations/email.js';
 import { notificationService } from '../../../services/notificationService.js';
-import { computeCommissionAmount } from '../admin/suppliers/dispatch.service.js';
+import { dispatchService } from '../admin/suppliers/dispatch.service.js';
 import logger from '../../../config/logger.js';
 import env from '../../../config/env.js';
 
@@ -125,17 +125,10 @@ export const settlementService = {
           data: { settlementId: created.id, status: 'SETTLED' },
         });
 
-        // Snapshot OtoRent's commission per supplier-fulfilled booking.
-        // commissionAmount = round(finalAmount × commissionRate) — integer VND.
-        for (const b of inPeriod) {
-          if (b.commissionRate == null || b.finalAmount == null) continue;
-          const amount = computeCommissionAmount(b.finalAmount, b.commissionRate);
-          if (amount == null) continue;
-          await tx.corporateBooking.update({
-            where: { id: b.id },
-            data: { commissionAmount: amount },
-          });
-        }
+        await dispatchService.applyCommissionOnSettle(
+          inPeriod.map((booking) => booking.id),
+          tx
+        );
       }
 
       return created;

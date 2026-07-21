@@ -15,11 +15,14 @@ import {
   rejectSchema,
   completeSchema,
   memberIdParamSchema,
+  settlementIdParamSchema,
 } from './supplierPortal.validator.js';
 import {
   inviteMemberSchema,
   acceptSupplierInviteSchema,
   updateMemberSchema,
+  listSupplierSettlementsQuerySchema,
+  submitSettlementDocumentsSchema,
 } from '../admin/suppliers/adminSupplier.validator.js';
 
 const router = Router();
@@ -114,6 +117,30 @@ router.put(
   validate(bookingIdParamSchema, 'params'),
   validate(completeSchema, 'body'),
   supplierPortalController.complete
+);
+
+// ── Payout settlements (view + submit documents) ────────────────────
+router.get(
+  '/settlements',
+  authenticate,
+  requireSupplierMember,
+  validate(listSupplierSettlementsQuerySchema, 'query'),
+  supplierPortalController.listSettlements
+);
+router.get(
+  '/settlements/:settlementId',
+  authenticate,
+  requireSupplierMember,
+  validate(settlementIdParamSchema, 'params'),
+  supplierPortalController.getSettlement
+);
+router.post(
+  '/settlements/:settlementId/documents',
+  authenticate,
+  requireSupplierAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  validate(submitSettlementDocumentsSchema, 'body'),
+  supplierPortalController.submitSettlementDocuments
 );
 
 export default router;
