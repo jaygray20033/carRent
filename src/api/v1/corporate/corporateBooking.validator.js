@@ -1,0 +1,140 @@
+// src/api/v1/corporate/corporateBooking.validator.js
+import { z } from 'zod';
+
+export const createBookingSchema = z.object({
+  vehicleType: z.enum(['4_5_seat', '7_seat', '16_seat', '29_seat', '34_seat', '45_seat']),
+  rentalType: z.enum(['half_day', 'full_day']),
+  estimatedKm: z.coerce.number().positive('Km ước tính phải > 0'),
+  pickupAt: z.coerce.date(),
+  returnAt: z.coerce.date(),
+  pickupAddress: z
+    .string()
+    .trim()
+    .min(3, 'Điểm đón cần ít nhất 3 ký tự')
+    .max(500, 'Điểm đón tối đa 500 ký tự'),
+  dropoffAddress: z
+    .string()
+    .trim()
+    .min(3, 'Điểm trả cần ít nhất 3 ký tự')
+    .max(500, 'Điểm trả tối đa 500 ký tự'),
+  purpose: z.string().trim().max(1000).optional().nullable(),
+  vehicleId: z.coerce.number().int().positive().optional().nullable(),
+});
+
+export const listBookingsQuerySchema = z.object({
+  status: z
+    .enum([
+      'PENDING',
+      'APPROVED',
+      'DISPATCHED',
+      'DRIVER_ASSIGNED',
+      'IN_PROGRESS',
+      'PENDING_CONFIRM',
+      'CONFIRMED',
+      'SETTLED',
+      'CANCELLED',
+    ])
+    .optional(),
+  employeeId: z.coerce.number().int().positive().optional(),
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/, 'month must be YYYY-MM')
+    .optional(),
+  page: z.coerce.number().int().positive().optional(),
+  size: z.coerce.number().int().positive().max(100).optional(),
+});
+
+export const bookingIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+});
+
+export const approveBookingSchema = z.object({
+  vehicleId: z.coerce.number().int().positive().optional().nullable(),
+  driverId: z.coerce.number().int().positive().optional().nullable(),
+});
+
+export const rejectBookingSchema = z.object({
+  reason: z.string().trim().min(1, 'Vui lòng nhập lý do từ chối').max(1000),
+});
+
+export const addExpenseSchema = z.object({
+  type: z.enum([
+    'TOLL_ROAD',
+    'PARKING',
+    'OVERTIME',
+    'EXTRA_KM',
+    'ONE_WAY_KM',
+    'OVERNIGHT',
+    'OTHER',
+  ]),
+  amount: z.coerce.number().positive('Số tiền phải > 0'),
+  description: z.string().trim().max(1000).optional().nullable(),
+  receiptUrl: z.string().trim().url().optional().nullable().or(z.literal('')),
+  recordedBy: z.enum(['driver', 'employee']).optional(),
+});
+
+export const expenseIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  expenseId: z.coerce.number().int().positive(),
+});
+
+export const approveExpenseSchema = z.object({
+  approved: z.boolean(),
+});
+
+export const completeBookingSchema = z.object({
+  actualKm: z.coerce.number().positive('actualKm phải > 0'),
+  employeeNote: z.string().trim().max(2000).optional().nullable(),
+});
+
+// Gộp Mức 1: Corporate Admin xác nhận & chốt trong 1 bước, kèm lựa chọn hình thức
+// thanh toán — PAY_NOW (quyết toán ngay chuyến) hoặc ON_CREDIT (gom công nợ tháng).
+export const confirmAndFinalizeSchema = z.object({
+  paymentMode: z.enum(['PAY_NOW', 'ON_CREDIT']),
+});
+
+/** UC-72 — CarGoGo Admin list filters */
+export const adminListBookingsQuerySchema = z.object({
+  corporateId: z.coerce.number().int().positive().optional(),
+  status: z
+    .enum([
+      'PENDING',
+      'APPROVED',
+      'DISPATCHED',
+      'DRIVER_ASSIGNED',
+      'IN_PROGRESS',
+      'PENDING_CONFIRM',
+      'CONFIRMED',
+      'SETTLED',
+      'CANCELLED',
+    ])
+    .optional(),
+  driverId: z.coerce.number().int().positive().optional(),
+  supplierId: z.coerce.number().int().positive().optional(),
+  awaitingDriverRelease: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  page: z.coerce.number().int().positive().optional(),
+  size: z.coerce.number().int().positive().max(100).optional(),
+});
+
+export const assignDriverSchema = z.object({
+  driverId: z.coerce.number().int().positive(),
+  vehicleId: z.coerce.number().int().positive().optional().nullable(),
+});
+
+export default {
+  createBookingSchema,
+  listBookingsQuerySchema,
+  bookingIdParamSchema,
+  approveBookingSchema,
+  rejectBookingSchema,
+  addExpenseSchema,
+  expenseIdParamSchema,
+  approveExpenseSchema,
+  completeBookingSchema,
+  confirmAndFinalizeSchema,
+};

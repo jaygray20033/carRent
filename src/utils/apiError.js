@@ -39,3 +39,24 @@ export class ValidationError extends AppError {
     super('Validation failed', 422, 'VALIDATION', details);
   }
 }
+
+// 410 — resource expired/gone (e.g. OTP expired)
+export class GoneError extends AppError {
+  constructor(msg = 'Gone', code = 'GONE') {
+    super(msg, 410, code);
+  }
+}
+
+// 422 — business-rule validation with explicit code (e.g. OTP_INVALID)
+export class UnprocessableError extends AppError {
+  constructor(msg = 'Unprocessable', code = 'UNPROCESSABLE', details = null) {
+    super(msg, 422, code, details);
+  }
+}
+
+// 429 — too many requests (rate limit)
+export class TooManyRequestsError extends AppError {
+  constructor(msg = 'Too many requests', code = 'TOO_MANY_REQUESTS') {
+    super(msg, 429, code);
+  }
+}

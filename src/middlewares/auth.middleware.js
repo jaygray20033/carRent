@@ -1,22 +1,74 @@
-// src/middlewares/auth.middleware.js
-import { verifyAccessToken } from '../utils/jwt.js';
-import { UnauthorizedError } from '../utils/apiError.js';
+// ─────────────────────────────────────────────────────────────────────
+//  src/middlewares/auth.middleware.js — JWT authentication
+// ─────────────────────────────────────────────────────────────────────
+import jwt from 'jsonwebtoken';
+import env from '../config/env.js';
+import prisma from '../config/db.js';
 
-export const authenticate = (req, _res, next) => {
+/**
+ * Middleware to verify JWT access token.
+ * Sets req.user with the authenticated user object.
+ */
+export async function authenticate(req, res, next) {
   try {
-    const header = req.headers.authorization || '';
-    const [, token] = header.split(' ');
-    if (!token) throw new UnauthorizedError('Missing access token');
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        status: 'fail',
+        message: 'Access token is required. Please provide a valid Bearer token.',
+      });
+    }
 
-    const payload = verifyAccessToken(token);
-    req.user = {
-      id: payload.sub,
-      roleCode: payload.role,
-    };
+    const token = authHeader.split(' ')[1];
+    const decoded = jwt.verify(token, env.JWT_ACCESS_SECRET);
+
+    // Access tokens carry the user id in `sub` (string); older callers used `userId`.
+    const userId = decoded.sub ?? decoded.userId;
+
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        roleId: true,
+        status: true,
+        role: { select: { code: true, name: true } },
+      },
+    });
+
+    if (!user) {
+      return res.status(401).json({
+        status: 'fail',
+        message: 'User not found or token is invalid.',
+      });
+    }
+
+    if (user.status !== 'ACTIVE') {
+      return res.status(403).json({
+        status: 'fail',
+        message: 'Account is not active.',
+      });
+    }
+
+    req.user = user;
     next();
-  } catch (err) {
-    if (err.name === 'TokenExpiredError') return next(new UnauthorizedError('Token expired'));
-    if (err.name === 'JsonWebTokenError') return next(new UnauthorizedError('Invalid token'));
-    next(err);
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({
+        status: 'fail',
+        message: 'Access token has expired.',
+      });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({
+        status: 'fail',
+        message: 'Invalid access token.',
+      });
+    }
+    next(error);
   }
-};
+}
+
+export default { authenticate };
