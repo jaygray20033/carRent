@@ -87,7 +87,13 @@ export const completeBookingSchema = z.object({
   employeeNote: z.string().trim().max(2000).optional().nullable(),
 });
 
-/** UC-72 — OtoRent Admin list filters */
+// Gộp Mức 1: Corporate Admin xác nhận & chốt trong 1 bước, kèm lựa chọn hình thức
+// thanh toán — PAY_NOW (quyết toán ngay chuyến) hoặc ON_CREDIT (gom công nợ tháng).
+export const confirmAndFinalizeSchema = z.object({
+  paymentMode: z.enum(['PAY_NOW', 'ON_CREDIT']),
+});
+
+/** UC-72 — CarGoGo Admin list filters */
 export const adminListBookingsQuerySchema = z.object({
   corporateId: z.coerce.number().int().positive().optional(),
   status: z
@@ -130,4 +136,5 @@ export default {
   expenseIdParamSchema,
   approveExpenseSchema,
   completeBookingSchema,
+  confirmAndFinalizeSchema,
 };

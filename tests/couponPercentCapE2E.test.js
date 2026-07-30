@@ -14,15 +14,23 @@ import dayjs from 'dayjs';
 const { default: app } = await import('../src/app.js');
 const { default: prisma } = await import('../src/config/db.js');
 const { env } = await import('../src/config/env.js');
+const { settingsService } = await import('../src/services/settingsService.js');
 
 const BASE = env.API_PREFIX; // /api/v1
 const stamp = Date.now().toString().slice(-7);
 
 const signToken = (userId) => jwt.sign({ userId }, env.JWT_ACCESS_SECRET, { expiresIn: '15m' });
 
-// 1,500,000/day × 2 days = 3,000,000 subtotal → 10% = 300,000, above the 200k cap.
+// 1,500,000/day × 2 days = 3,000,000 base. subtotal now includes tax on base,
+// so the coupon percentage is applied to (base + tax). At any positive tax rate
+// 10% of the 2-day subtotal still exceeds the 200k cap → clamped.
 const PRICE_PER_DAY = 1_500_000;
 const CAP = 200_000;
+
+// Pricing knobs are read from settings at runtime so expected numbers stay
+// correct regardless of what tax_rate other suites may have written.
+let pricing;
+const withTax = (base) => base + Math.round((base * pricing.taxRate) / 100);
 
 let customerRole;
 let user;
@@ -73,6 +81,8 @@ beforeAll(async () => {
       status: 'AVAILABLE',
     },
   });
+
+  pricing = await settingsService.getPricingConfig();
 
   // PERCENT 10% capped at 200k, unlimited use so reruns don't hit the limit.
   coupon = await prisma.coupon.create({
@@ -125,7 +135,7 @@ describe('Coupon PERCENT with max_discount cap (UC-16/57)', () => {
     bookingId = b.id;
     expect(b.status).toBe('DRAFT');
     expect(b.totalDays).toBe(2);
-    expect(b.subtotal).toBe(3_000_000);
+    expect(b.subtotal).toBe(withTax(3_000_000));
     expect(b.couponDiscount).toBe(0);
   });
 
@@ -151,9 +161,9 @@ describe('Coupon PERCENT with max_discount cap (UC-16/57)', () => {
     expect(res.status).toBe(200);
     const b = res.body.data;
     expect(b.status).toBe('PENDING_PAYMENT');
-    expect(b.subtotal).toBe(3_000_000);
+    expect(b.subtotal).toBe(withTax(3_000_000));
     expect(b.couponDiscount).toBe(CAP);
-    expect(b.totalAmount).toBe(2_800_000); // 3,000,000 − 200,000
+    expect(b.totalAmount).toBe(withTax(3_000_000) - CAP); // subtotal − capped discount
 
     const usage = await prisma.couponUsage.findFirst({
       where: { bookingId, userId: user.id, couponId: coupon.id },
@@ -172,7 +182,7 @@ describe('Coupon PERCENT below the cap applies the raw percentage', () => {
     expect(res.status).toBe(201);
     const b = res.body.data;
     smallBookingId = b.id;
-    expect(b.subtotal).toBe(1_500_000);
+    expect(b.subtotal).toBe(withTax(1_500_000));
 
     const validateRes = await request(app)
       .post(`${BASE}/coupons/validate`)
@@ -180,7 +190,9 @@ describe('Coupon PERCENT below the cap applies the raw percentage', () => {
       .send({ code: coupon.code, bookingId: smallBookingId });
 
     expect(validateRes.status).toBe(200);
-    // Raw 10% = 150,000, still below the 200,000 cap → not clamped.
-    expect(validateRes.body.data.discount).toBe(150_000);
+    // Raw 10% of the tax-inclusive subtotal, still below the 200,000 cap → not clamped.
+    const rawDiscount = Math.round(withTax(1_500_000) * 0.1);
+    expect(rawDiscount).toBeLessThan(CAP);
+    expect(validateRes.body.data.discount).toBe(rawDiscount);
   });
 });

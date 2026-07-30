@@ -31,11 +31,19 @@ export const createCorporateClientSchema = z.object({
   creditLimit: z.coerce.number().min(0).optional(),
   paymentTermDays: z.coerce.number().int().min(0).max(365).optional(),
   isActive: z.boolean().optional(),
+  autoApproveBookings: z.boolean().optional(),
   priceConfig: z.record(z.any()).optional(),
 });
 
 export const updateCorporateClientSchema = createCorporateClientSchema.partial().extend({
   taxCode: taxCodeSchema.optional(),
+});
+
+// Corporate-admin self-service company settings (PATCH /me/company). Only the
+// fields a company can flip themselves — NOT contract/credit terms (those stay
+// CarGoGo-admin-only via updateCorporateClientSchema).
+export const updateMyCompanySchema = z.object({
+  autoApproveBookings: z.boolean(),
 });
 
 export const listCorporateClientsQuerySchema = z.object({
@@ -63,6 +71,7 @@ export default {
   selfRegisterCorporateSchema,
   createCorporateClientSchema,
   updateCorporateClientSchema,
+  updateMyCompanySchema,
   listCorporateClientsQuerySchema,
   idParamSchema,
   priceConfigSchema,

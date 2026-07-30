@@ -21,6 +21,7 @@ export const PRICING_DEFAULTS = {
   tax_rate: 10, // percent
   deposit_default: 5_000_000, // VND
   dropoff_penalty: 200_000, // VND, applied when dropoff ≠ pickup
+  driver_rate: 500_000, // VND/day for a WITH_DRIVER rental (also the FREE_DRIVER coupon value)
   hourly_rate_ratio: 0.18, // hourly rate = daily × ratio
   with_driver_surcharge: 0.4, // with-driver daily = daily × (1 + surcharge)
 };
@@ -31,8 +32,13 @@ const KEY_META = {
   tax_rate: { grp: 'pricing', label: 'Thuế suất (%)' },
   deposit_default: { grp: 'pricing', label: 'Đặt cọc mặc định (VND)' },
   dropoff_penalty: { grp: 'pricing', label: 'Phụ phí trả khác điểm (VND)' },
+  driver_rate: { grp: 'pricing', label: 'Phí tài xế / ngày (VND)' },
   hourly_rate_ratio: { grp: 'pricing', label: 'Hệ số giá theo giờ' },
   with_driver_surcharge: { grp: 'pricing', label: 'Phụ phí tài xế' },
+  auto_release_driver_info: {
+    grp: 'general',
+    label: 'Tự động chuyển thông tin tài xế cho doanh nghiệp',
+  },
 };
 
 /** Read every setting row and shape it as { key: { value, grp, label } }. */
@@ -116,6 +122,7 @@ export const settingsService = {
       taxRate: num('tax_rate'),
       depositDefault: num('deposit_default'),
       dropoffPenalty: num('dropoff_penalty'),
+      driverRate: num('driver_rate'),
       hourlyRateRatio: num('hourly_rate_ratio'),
       withDriverSurcharge: num('with_driver_surcharge'),
     };

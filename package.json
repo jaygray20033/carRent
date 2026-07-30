@@ -45,6 +45,7 @@
     "pdfkit": "^0.19.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
+    "twilio": "^6.0.2",
     "uuid": "^10.0.0",
     "winston": "^3.17.0",
     "zod": "^3.24.0"

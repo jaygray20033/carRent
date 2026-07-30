@@ -107,6 +107,10 @@ export const corporateBookingService = {
       priceConfig: corporate.priceConfig,
     });
 
+    // When the company enables auto-approve, employee bookings skip the
+    // corporate-admin gate and land straight in APPROVED.
+    const autoApprove = Boolean(corporate.autoApproveBookings);
+
     const booking = await prisma.corporateBooking.create({
       data: {
         corporateId: corporate.id,
@@ -120,19 +124,29 @@ export const corporateBookingService = {
         basePrice,
         rentalType: data.rentalType,
         vehicleType: data.vehicleType,
-        status: 'PENDING',
+        status: autoApprove ? 'APPROVED' : 'PENDING',
         vehicleId: data.vehicleId ? Number(data.vehicleId) : null,
       },
       include: bookingInclude,
     });
 
     const empName = membership.user?.fullName || 'Nhân viên';
-    await notifyCorporateAdmins(corporate.id, {
-      type: 'CORPORATE_BOOKING_CREATED',
-      title: 'Có yêu cầu đặt xe mới',
-      body: `Có yêu cầu đặt xe mới từ ${empName}`,
-      link: `/corporate/bookings/${booking.id}`,
-    });
+    if (autoApprove) {
+      // No approval needed — just let admins know a trip was booked.
+      await notifyCorporateAdmins(corporate.id, {
+        type: 'CORPORATE_BOOKING_CREATED',
+        title: 'Có chuyến đặt xe mới (tự động duyệt)',
+        body: `${empName} vừa đặt xe — tự động duyệt theo cấu hình công ty.`,
+        link: `/enterprise/schedule`,
+      });
+    } else {
+      await notifyCorporateAdmins(corporate.id, {
+        type: 'CORPORATE_BOOKING_CREATED',
+        title: 'Có yêu cầu đặt xe mới',
+        body: `Có yêu cầu đặt xe mới từ ${empName} cần duyệt`,
+        link: `/enterprise/schedule`,
+      });
+    }
 
     return stripBookingForCorporate(booking);
   },
@@ -210,7 +224,7 @@ export const corporateBookingService = {
         type: 'CORPORATE_BOOKING_APPROVED',
         title: 'Yêu cầu đặt xe đã được duyệt',
         body: `Chuyến #${updated.id} đã được Corporate Admin duyệt.`,
-        link: `/corporate/bookings/${updated.id}`,
+        link: `/enterprise/schedule`,
       });
     }
     return stripBookingForCorporate(updated);
@@ -242,7 +256,7 @@ export const corporateBookingService = {
         type: 'CORPORATE_BOOKING_REJECTED',
         title: 'Yêu cầu đặt xe bị từ chối',
         body: reason,
-        link: `/corporate/bookings/${updated.id}`,
+        link: `/enterprise/schedule`,
       });
     }
     return stripBookingForCorporate(updated);
@@ -301,7 +315,7 @@ export const corporateBookingService = {
   },
 
   /**
-   * UC-72 — OtoRent Admin list all B2B bookings (cross-company).
+   * UC-72 — CarGoGo Admin list all B2B bookings (cross-company).
    * Filters: corporateId, status, driverId, from/to (pickupAt range).
    */
   async adminList({
@@ -320,7 +334,7 @@ export const corporateBookingService = {
     if (status) where.status = status;
     if (driverId) where.driverId = Number(driverId);
     if (supplierId) where.supplierId = Number(supplierId);
-    // DRIVER_ASSIGNED but OtoRent has not yet released driver info to the company.
+    // DRIVER_ASSIGNED but CarGoGo has not yet released driver info to the company.
     if (awaitingDriverRelease === true || awaitingDriverRelease === 'true') {
       where.status = 'DRIVER_ASSIGNED';
       where.driverInfoReleasedAt = null;
@@ -341,7 +355,7 @@ export const corporateBookingService = {
       prisma.corporateBooking.findMany({
         where,
         include: bookingInclude,
-        orderBy: [{ pickupAt: 'asc' }, { createdAt: 'desc' }],
+        orderBy: [{ createdAt: 'desc' }],
         skip: (page - 1) * size,
         take: size,
       }),
@@ -399,14 +413,14 @@ export const corporateBookingService = {
         type: 'CORPORATE_DRIVER_ASSIGNED',
         title: 'Đã phân công tài xế',
         body: `Chuyến #${updated.id}: tài xế ${driver.fullName} (${driver.phone}).`,
-        link: `/corporate/bookings/${updated.id}`,
+        link: `/enterprise/schedule`,
       });
     }
 
     return { ...updated, driver };
   },
 
-  /** OtoRent Admin / operator advances APPROVED → IN_PROGRESS (start trip). */
+  /** CarGoGo Admin / operator advances APPROVED → IN_PROGRESS (start trip). */
   async startTrip(bookingId) {
     const booking = await prisma.corporateBooking.findUnique({ where: { id: Number(bookingId) } });
     if (!booking) throw new NotFoundError('Corporate booking');

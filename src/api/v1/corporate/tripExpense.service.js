@@ -10,6 +10,8 @@ import {
 import { buildCostSummary } from '../../../services/tripExpenseCalculator.js';
 import { notificationService } from '../../../services/notificationService.js';
 import { TRIP_EXPENSE_TYPES } from '../../../constants/corporatePricing.js';
+import { settlementService } from './settlement.service.js';
+import logger from '../../../config/logger.js';
 
 const OPEN_FOR_EXPENSE = new Set(['IN_PROGRESS', 'PENDING_CONFIRM']);
 const LOCKED = new Set(['CONFIRMED', 'SETTLED', 'CANCELLED']);
@@ -168,7 +170,7 @@ export const tripExpenseService = {
       type: 'CORPORATE_BOOKING_PENDING_CONFIRM',
       title: 'Chuyến cần xác nhận chi phí',
       body: `Chuyến #${booking.id} đã kết thúc, cần xác nhận chi phí`,
-      link: `/corporate/bookings/${booking.id}`,
+      link: `/enterprise/schedule`,
     });
 
     return updated;
@@ -189,7 +191,7 @@ export const tripExpenseService = {
     });
   },
 
-  /** Corporate Admin final company-side confirmation → CONFIRMED (pending OtoRent). */
+  /** Corporate Admin final company-side confirmation → CONFIRMED (pending CarGoGo). */
   async confirmCorporate(membership, bookingId) {
     if (!membership.isAdmin) {
       throw new ForbiddenError('Chỉ Corporate Admin xác nhận');
@@ -245,6 +247,69 @@ export const tripExpenseService = {
     });
   },
 
+  /**
+   * Gộp Mức 1: Corporate Admin xác nhận & chốt trong 1 bước.
+   * Tự duyệt mọi chi phí đang chờ → set confirmedByEmployee + confirmedByCorporateAdmin
+   * → tính finalAmount → CONFIRMED, đồng thời ghi nhận paymentMode (PAY_NOW/ON_CREDIT).
+   * Admin vẫn có thể từ chối từng khoản chi phí trước khi bấm nút này.
+   */
+  async confirmAndFinalize(membership, bookingId, { paymentMode } = {}) {
+    if (!membership.isAdmin) {
+      throw new ForbiddenError('Chỉ Corporate Admin xác nhận');
+    }
+    const mode =
+      paymentMode === 'PAY_NOW'
+        ? 'PAY_NOW'
+        : paymentMode === 'ON_CREDIT'
+          ? 'ON_CREDIT'
+          : null;
+    if (!mode) {
+      throw new UnprocessableError(
+        'Cần chọn hình thức thanh toán (PAY_NOW hoặc ON_CREDIT)',
+        'PAYMENT_MODE_REQUIRED'
+      );
+    }
+    const booking = await loadBookingForMember(membership, bookingId);
+    if (booking.status !== 'PENDING_CONFIRM') {
+      throw new ConflictError(
+        `Chỉ xác nhận khi PENDING_CONFIRM (hiện: ${booking.status})`,
+        'INVALID_STATUS_TRANSITION'
+      );
+    }
+
+    return prisma.$transaction(async (tx) => {
+      // Duyệt gộp mọi khoản chi phí còn treo (admin ký một lần cho cả cụm).
+      await tx.tripExpense.updateMany({
+        where: { corporateBookingId: booking.id, approvedByAdmin: null },
+        data: { approvedByAdmin: true },
+      });
+
+      const [expenses, vasLines] = await Promise.all([
+        tx.tripExpense.findMany({ where: { corporateBookingId: booking.id } }),
+        tx.bookingVAS.findMany({
+          where: { corporateBookingId: booking.id },
+          include: { vas: true },
+        }),
+      ]);
+      const summary = buildCostSummary({
+        basePrice: booking.basePrice,
+        expenses,
+        vasLines,
+      });
+
+      return tx.corporateBooking.update({
+        where: { id: booking.id },
+        data: {
+          confirmedByEmployee: true,
+          confirmedByCorporateAdmin: true,
+          finalAmount: summary.total,
+          paymentMode: mode,
+          status: 'CONFIRMED',
+        },
+      });
+    });
+  },
+
   /** OtoRent Admin final stamp. */
   async confirmOtorent(bookingId) {
     const booking = await prisma.corporateBooking.findUnique({
@@ -265,10 +330,27 @@ export const tripExpenseService = {
       );
     }
 
-    return prisma.corporateBooking.update({
+    const updated = await prisma.corporateBooking.update({
       where: { id: booking.id },
       data: { confirmedByOtorent: true, status: 'CONFIRMED' },
     });
+
+    // Mức 2: nếu DN chọn "trả luôn" (PAY_NOW), tự tạo bảng kê lẻ ngay khi CarGoGo
+    // chốt — DN không phải bấm thêm. ON_CREDIT thì để chuyến chờ gom kỳ tháng.
+    // Bọc try/catch để việc chốt vẫn thành công dù tạo bảng kê lỗi (admin có thể
+    // tạo tay sau bằng nút "Quyết toán ngay chuyến này").
+    let settlement = null;
+    if (updated.paymentMode === 'PAY_NOW' && !updated.settlementId) {
+      try {
+        settlement = await settlementService.createForBooking(updated.id);
+      } catch (err) {
+        logger.warn(
+          `Auto quick-settlement failed for booking ${updated.id}: ${err.message}`
+        );
+      }
+    }
+
+    return { ...updated, settlement };
   },
 
   async costSummary(membership, bookingId) {

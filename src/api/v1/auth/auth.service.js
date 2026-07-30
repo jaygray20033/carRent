@@ -150,16 +150,14 @@ export const authService = {
    * UC-01 Register: tạo user PENDING + Wallet + sinh OTP (hash bcrypt vào Redis)
    */
   async register({ fullName, phone, email, password }) {
-    const cleanEmail = email && email.length ? email : null;
+    const cleanEmail = email.trim();
 
     // Check trùng phone / email
     const dupPhone = await prisma.user.findUnique({ where: { phone } });
     if (dupPhone) throw new ConflictError('Phone already exists', 'PHONE_EXISTS');
 
-    if (cleanEmail) {
-      const dupEmail = await prisma.user.findUnique({ where: { email: cleanEmail } });
-      if (dupEmail) throw new ConflictError('Email already exists', 'EMAIL_EXISTS');
-    }
+    const dupEmail = await prisma.user.findUnique({ where: { email: cleanEmail } });
+    if (dupEmail) throw new ConflictError('Email already exists', 'EMAIL_EXISTS');
 
     const customerRole = await prisma.role.findUnique({ where: { code: 'CUSTOMER' } });
     if (!customerRole) throw new NotFoundError('Default role CUSTOMER');
@@ -187,17 +185,18 @@ export const authService = {
     const code = generateOtp();
     const codeHash = await hashOtp(code);
     await redis.set(
-      otpKey('REGISTER', phone),
+      otpKey('REGISTER', cleanEmail),
       JSON.stringify({ codeHash, attempts: 0 }),
       'EX',
       OTP_TTL
     );
-    await enqueueSendOtp({ to: phone, code, purpose: 'REGISTER', ttl: OTP_TTL, email: cleanEmail });
+    await enqueueSendOtp({ to: cleanEmail, code, purpose: 'REGISTER', ttl: OTP_TTL, email: cleanEmail });
 
     return {
       user: sanitizeUser(user),
       requireOtp: true,
       otpPurpose: 'REGISTER',
+      otpIdentifier: cleanEmail,
       message: 'OTP sent. Please verify to activate your account.',
     };
   },

@@ -47,7 +47,7 @@ async function bootstrap() {
   app.listen(PORT, '0.0.0.0', () => {
     logger.info(`
 ====================================
-  OtoRent API Server
+  CarGoGo API Server
   Port: ${PORT}
   Env: ${env.NODE_ENV}
   Redis: ${redisOk ? 'CONNECTED' : 'UNAVAILABLE'}

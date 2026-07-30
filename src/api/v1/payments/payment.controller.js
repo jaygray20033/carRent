@@ -6,6 +6,10 @@ import { success, created } from '../../../utils/apiResponse.js';
 import { env } from '../../../config/env.js';
 import prisma from '../../../config/db.js';
 import logger from '../../../config/logger.js';
+// [DISABLED — SePay webhook, see commented sepayWebhook below] These were only
+// used by the now-disabled SePay auto-reconcile handler.
+// import { settlementService } from '../corporate/settlement.service.js';
+// import { parseSettlementId } from '../../../services/vietqr.js';
 
 export const paymentController = {
   checkout: async (req, res) => {
@@ -75,4 +79,50 @@ export const paymentController = {
       return res.json({ RspCode: '99', Message: 'Unknown error' });
     }
   },
+
+  // [DISABLED — manual bank-transfer flow] Enterprise settlements are now paid via
+  // a manual "báo đã thanh toán → upload ảnh → admin xác nhận" flow, so the SePay
+  // auto-reconcile handler is no longer routed. Kept commented for reference.
+  // // POST /payments/sepay/webhook — public bank-transfer callback (SePay servers).
+  // // No user auth: authenticity is a shared secret in the Authorization header
+  // // ("Apikey <SEPAY_WEBHOOK_SECRET>"). Only "in" transfers matter; we parse the
+  // // settlement id out of the transfer content and let the service reconcile it.
+  // // Always 200 on authenticated calls (even unmatched) so SePay won't retry a
+  // // transfer we can't map — reconcile.matched=false is logged, not retried.
+  // sepayWebhook: async (req, res) => {
+  //   const secret = env.SEPAY_WEBHOOK_SECRET;
+  //   const auth = req.headers.authorization || '';
+  //   const provided = auth.replace(/^Apikey\s+/i, '').trim();
+  //   if (!secret || provided !== secret) {
+  //     logger.warn('SePay webhook rejected: bad or missing Apikey');
+  //     return res.status(401).json({ success: false, message: 'Unauthorized' });
+  //   }
+  //
+  //   const body = req.body || {};
+  //   // Only incoming credits settle an invoice; ignore outgoing ("out") rows.
+  //   if (body.transferType && body.transferType !== 'in') {
+  //     return res.json({ success: true, matched: false, reason: 'NOT_INCOMING' });
+  //   }
+  //
+  //   const content = body.content || body.description || '';
+  //   const settlementId = parseSettlementId(content);
+  //   const txnRef = body.referenceCode || (body.id != null ? `SEPAY-${body.id}` : null);
+  //
+  //   try {
+  //     const result = await settlementService.reconcileByTransfer({
+  //       settlementId,
+  //       amount: body.transferAmount,
+  //       txnRef,
+  //     });
+  //     return res.json({
+  //       success: true,
+  //       matched: result.matched,
+  //       reason: result.reason,
+  //       settlementId: result.settlement?.id ?? settlementId ?? null,
+  //     });
+  //   } catch (err) {
+  //     logger.error(`SePay webhook error: ${err.message}`);
+  //     return res.status(500).json({ success: false, message: 'Reconcile failed' });
+  //   }
+  // },
 };

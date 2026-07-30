@@ -1,11 +1,12 @@
 // B2B Day 5 — PDF bảng kê quyết toán (pdfkit).
 import PDFDocument from 'pdfkit';
+import env from '../config/env.js';
 
 const BANK = {
-  accountName: 'CONG TY OTORENT',
-  accountNumber: '1042014299',
-  bank: 'Vietcombank',
-  branch: 'TP.HCM',
+  accountName: env.SETTLEMENT_BANK_ACCOUNT_NAME,
+  accountNumber: env.SETTLEMENT_BANK_ACCOUNT,
+  bank: env.SETTLEMENT_BANK_NAME,
+  branch: env.SETTLEMENT_BANK_BRANCH,
 };
 
 const fmt = (n) => `${Number(n || 0).toLocaleString('vi-VN')} d`;
@@ -29,7 +30,7 @@ export function buildSettlementPdf({ settlement, corporate, bookings = [] }) {
     doc.on('error', reject);
 
     // Header
-    doc.fontSize(18).text('OtoRent', { continued: false });
+    doc.fontSize(18).text('CarGoGo', { continued: false });
     doc.fontSize(12).text('BANG KE QUYET TOAN DICH VU THUE XE', { align: 'left' });
     doc.moveDown(0.5);
     doc.fontSize(10);
@@ -94,7 +95,7 @@ export function buildSettlementPdf({ settlement, corporate, bookings = [] }) {
     }
 
     doc.moveDown(2);
-    doc.fontSize(8).text(`Xuat luc: ${new Date().toISOString()} — OtoRent B2B`, {
+    doc.fontSize(8).text(`Xuat luc: ${new Date().toISOString()} — CarGoGo B2B`, {
       align: 'right',
     });
 

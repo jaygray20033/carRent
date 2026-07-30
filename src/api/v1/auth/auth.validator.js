@@ -20,13 +20,7 @@ export const registerSchema = z.object({
     .trim()
     .min(2, 'fullName must be 2-100 chars')
     .max(100, 'fullName must be 2-100 chars'),
-  email: z
-    .string()
-    .trim()
-    .email('Invalid email (RFC)')
-    .max(160)
-    .optional()
-    .or(z.literal('')),
+  email: z.string().trim().email('Invalid email (RFC)').max(160),
   phone: z.string().trim().regex(phoneRegex, 'Invalid VN phone number'),
   password: z
     .string()

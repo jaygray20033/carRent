@@ -43,7 +43,7 @@ async function loadBookingForMember(membership, bookingId) {
   return booking;
 }
 
-async function notifyOtorentAdmins(payload) {
+async function notifyCarGoGoAdmins(payload) {
   const admins = await prisma.user.findMany({
     where: { status: 'ACTIVE', role: { code: 'ADMIN' } },
     select: { id: true },
@@ -206,11 +206,11 @@ export const vasService = {
       include: { vas: true },
     });
 
-    await notifyOtorentAdmins({
+    await notifyCarGoGoAdmins({
       type: 'CORPORATE_BOOKING_VAS_ADDED',
       title: `Booking #${booking.id} yêu cầu thêm VAS`,
       body: `Booking #${booking.id} yêu cầu thêm [${vas.name} x${headcount} người]`,
-      link: `/admin/corporate-bookings/${booking.id}`,
+      link: `/admin/corporate/bookings`,
     }).catch(() => {});
 
     return line;
@@ -276,7 +276,7 @@ export const vasService = {
         type: 'CORPORATE_BOOKING_VAS_CONFIRMED',
         title: 'VAS đã được xác nhận',
         body: `${line.vas?.name || 'Dịch vụ'} trên chuyến #${booking.id} đã được assign`,
-        link: `/corporate/bookings/${booking.id}`,
+        link: `/enterprise/schedule`,
       });
     }
 

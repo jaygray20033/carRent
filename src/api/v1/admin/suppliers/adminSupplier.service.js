@@ -11,9 +11,12 @@ import {
   generateInviteToken,
   isInviteExpired,
   inviteExpiresAt,
+  inviteLinkStatus,
 } from '../../../../utils/corporateInvite.js';
 import { DEFAULT_COMMISSION_RATE } from '../../../../constants/supplier.js';
 import { notificationService } from '../../../../services/notificationService.js';
+import { enqueueSendOtp } from '../../../../integrations/sms.js';
+import { sendEmail } from '../../../../integrations/email.js';
 import logger from '../../../../config/logger.js';
 import env from '../../../../config/env.js';
 
@@ -25,6 +28,54 @@ function publicMember(m) {
   if (!m) return m;
   const { inviteToken, ...rest } = m;
   return rest;
+}
+
+// Auto-send a supplier invite over SMS (drivers are mobile-first) with email
+// fallback. Mirrors corporateEmployeeService.dispatchInvite — best-effort, never
+// throws (a failed send must not roll back the pending-member row).
+async function dispatchSupplierInvite({ member, token, supplier, phone, email }) {
+  const inviteUrl = `${env.FRONTEND_URL}/supplier/invite/accept?token=${token}`;
+  const targetPhone = phone || member.invitedPhone || member.user?.phone;
+  const targetEmail = email || member.invitedEmail || member.user?.email;
+
+  // SMS first — reuse the OTP enqueue channel (no real gateway yet). Drivers
+  // onboard on phones, so this is the primary channel.
+  if (targetPhone) {
+    try {
+      // Don't pass `email` here — the richer email fallback below carries the
+      // full accept link, so letting enqueueSendOtp also email would duplicate.
+      await enqueueSendOtp({
+        to: targetPhone,
+        code: `INVITE:${token.slice(0, 8)}`,
+        purpose: 'SUPPLIER_INVITE',
+        ttl: 48 * 3600,
+      });
+    } catch (err) {
+      logger.warn(`Supplier invite SMS failed: ${err.message}`);
+    }
+  }
+
+  // Email fallback (or in addition) with the full accept link.
+  if (targetEmail) {
+    try {
+      await sendEmail({
+        to: targetEmail,
+        subject: `Lời mời tham gia ${supplier.name} — CarGoGo`,
+        template: 'otp',
+        data: {
+          code: token.slice(0, 8),
+          purpose: `Mời vào ${supplier.name}. Link: ${inviteUrl}`,
+          ttlMinutes: 48 * 60,
+        },
+      });
+    } catch (err) {
+      logger.warn(`Supplier invite email failed: ${err.message}`);
+    }
+  }
+
+  logger.info(
+    `Supplier invite issued memberId=${member.id} supplierId=${supplier.id} url=${inviteUrl}`
+  );
 }
 
 export const adminSupplierService = {
@@ -217,9 +268,7 @@ export const adminSupplierService = {
           user: { select: { id: true, fullName: true, phone: true, email: true } },
         },
       });
-      logger.info(
-        `Supplier invite reissued memberId=${updated.id} supplierId=${supplier.id} token=${token.slice(0, 8)}…`
-      );
+      await dispatchSupplierInvite({ member: updated, token, supplier, phone, email });
       return { member: publicMember(updated), inviteToken: token };
     }
 
@@ -241,10 +290,34 @@ export const adminSupplierService = {
       },
     });
 
-    logger.info(
-      `Supplier invite issued memberId=${member.id} supplierId=${supplier.id} url=${env.FRONTEND_URL}/supplier/invite/accept?token=${token.slice(0, 8)}…`
-    );
+    await dispatchSupplierInvite({ member, token, supplier, phone, email });
     return { member: publicMember(member), inviteToken: token };
+  },
+
+  /**
+   * Re-issue + re-send the invite for a still-pending member row.
+   * Rejects rows that are already active or whose invite was consumed.
+   */
+  async resendInvite(supplierId, memberId) {
+    const member = await prisma.supplierMember.findFirst({
+      where: { id: Number(memberId), supplierId: Number(supplierId) },
+      include: { supplier: true, user: { select: { id: true, phone: true, email: true } } },
+    });
+    if (!member) throw new NotFoundError('Supplier member');
+    if (member.isActive || member.inviteUsedAt) {
+      throw new ConflictError('Thành viên đã tham gia, không cần gửi lại', 'INVITE_ALREADY_USED');
+    }
+
+    const token = generateInviteToken();
+    const updated = await prisma.supplierMember.update({
+      where: { id: member.id },
+      data: { inviteToken: token, inviteExpiresAt: inviteExpiresAt() },
+      include: {
+        user: { select: { id: true, fullName: true, phone: true, email: true } },
+      },
+    });
+    await dispatchSupplierInvite({ member: updated, token, supplier: member.supplier });
+    return { member: publicMember(updated), inviteToken: token };
   },
 
   async acceptInvite({ token }, userId) {
@@ -265,8 +338,12 @@ export const adminSupplierService = {
       throw new ForbiddenError('Invite không dành cho tài khoản này');
     }
 
+    // userId is globally @unique on SupplierMember, so ANY other row holding this
+    // userId (even an inactive/dangling invite) makes the update below violate the
+    // constraint — catch it here as a clean 409 instead of letting Prisma P2002
+    // surface as a 500. (Mirrors the corporateEmployee.acceptInvite guard.)
     const other = await prisma.supplierMember.findFirst({
-      where: { userId: Number(userId), isActive: true, id: { not: member.id } },
+      where: { userId: Number(userId), id: { not: member.id } },
     });
     if (other) {
       throw new ConflictError(
@@ -457,6 +534,165 @@ export const adminSupplierService = {
       totalSupplierPayout: Math.round(totalFinalAmount - totalCommission),
       items,
     };
+  },
+
+  // ── Shareable multi-use join link (Slack-style) ──────────────────────
+  // One link, many joiners; each join creates an ACTIVE member row and
+  // promotes the user's role. Drivers capture fullName/phone/email.
+
+  async createInviteLink(supplierId, { maxUses, expiresInHours, defaultIsAdmin = false } = {}, createdBy) {
+    const supplier = await prisma.supplier.findUnique({ where: { id: Number(supplierId) } });
+    if (!supplier) throw new NotFoundError('Supplier');
+    if (!supplier.isActive) {
+      throw new ConflictError('Nhà cung cấp đang tạm ngưng', 'SUPPLIER_INACTIVE');
+    }
+
+    const token = generateInviteToken();
+    const expiresAt =
+      expiresInHours != null ? new Date(Date.now() + Number(expiresInHours) * 3600_000) : null;
+
+    return prisma.supplierInviteLink.create({
+      data: {
+        supplierId: Number(supplierId),
+        token,
+        defaultIsAdmin: Boolean(defaultIsAdmin),
+        maxUses: maxUses != null ? Number(maxUses) : null,
+        expiresAt,
+        createdBy: createdBy != null ? Number(createdBy) : null,
+      },
+    });
+  },
+
+  async listInviteLinks(supplierId) {
+    return prisma.supplierInviteLink.findMany({
+      where: { supplierId: Number(supplierId) },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  async revokeInviteLink(supplierId, linkId) {
+    const link = await prisma.supplierInviteLink.findFirst({
+      where: { id: Number(linkId), supplierId: Number(supplierId) },
+    });
+    if (!link) throw new NotFoundError('Invite link');
+    await prisma.supplierInviteLink.update({
+      where: { id: link.id },
+      data: { isActive: false },
+    });
+    return { id: link.id, revoked: true };
+  },
+
+  /** Public preview — no auth. Returns supplier name + link validity (no token leak). */
+  async previewInviteLink(token) {
+    const link = await prisma.supplierInviteLink.findUnique({
+      where: { token: String(token) },
+      include: { supplier: { select: { id: true, name: true, isActive: true } } },
+    });
+    const status = inviteLinkStatus(link);
+    if (!status.valid) {
+      return { valid: false, reason: status.reason };
+    }
+    if (!link.supplier?.isActive) {
+      return { valid: false, reason: 'SUPPLIER_INACTIVE' };
+    }
+    return {
+      valid: true,
+      supplier: { id: link.supplier.id, name: link.supplier.name },
+      defaultIsAdmin: link.defaultIsAdmin,
+    };
+  },
+
+  /** Authenticated join. Creates an ACTIVE member row, promotes role, bumps usedCount. */
+  async joinViaLink(token, userId) {
+    const link = await prisma.supplierInviteLink.findUnique({
+      where: { token: String(token) },
+      include: { supplier: true },
+    });
+    const status = inviteLinkStatus(link);
+    if (!status.valid) {
+      if (status.reason === 'EXPIRED') throw new GoneError('Link đã hết hạn', 'LINK_EXPIRED');
+      if (status.reason === 'EXHAUSTED') {
+        throw new ConflictError('Link đã đạt số lượt tối đa', 'LINK_EXHAUSTED');
+      }
+      if (status.reason === 'REVOKED') {
+        throw new ConflictError('Link đã bị thu hồi', 'LINK_REVOKED');
+      }
+      throw new NotFoundError('Invite link');
+    }
+    if (!link.supplier?.isActive) {
+      throw new ConflictError('Nhà cung cấp đang tạm ngưng', 'SUPPLIER_INACTIVE');
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: Number(userId) },
+      select: { id: true, fullName: true, phone: true, email: true },
+    });
+
+    // Already a member of THIS supplier? Idempotent.
+    const existing = await prisma.supplierMember.findFirst({
+      where: { supplierId: link.supplierId, userId: Number(userId) },
+      include: { user: { select: { id: true, fullName: true, phone: true, email: true } } },
+    });
+    if (existing) {
+      if (existing.isActive) return { member: publicMember(existing), alreadyMember: true };
+      const reactivated = await prisma.supplierMember.update({
+        where: { id: existing.id },
+        data: { isActive: true, inviteUsedAt: new Date() },
+        include: { user: { select: { id: true, fullName: true, phone: true, email: true } } },
+      });
+      await prisma.supplierInviteLink.update({
+        where: { id: link.id },
+        data: { usedCount: { increment: 1 } },
+      });
+      return { member: publicMember(reactivated) };
+    }
+
+    // Bound to another supplier? userId is globally @unique on SupplierMember.
+    const elsewhere = await prisma.supplierMember.findUnique({
+      where: { userId: Number(userId) },
+    });
+    if (elsewhere) {
+      throw new ConflictError('Bạn đã thuộc một nhà cung cấp khác', 'ALREADY_MEMBER_OTHER_SUPPLIER');
+    }
+
+    const roleCode = link.defaultIsAdmin ? 'SUPPLIER_ADMIN' : 'SUPPLIER_DRIVER';
+    const role = await prisma.role.findUnique({ where: { code: roleCode } });
+
+    const member = await prisma.$transaction(async (tx) => {
+      if (role) {
+        await tx.user.update({ where: { id: Number(userId) }, data: { roleId: role.id } });
+      }
+      const created = await tx.supplierMember.create({
+        data: {
+          supplierId: link.supplierId,
+          userId: Number(userId),
+          fullName: user?.fullName || null,
+          invitedPhone: user?.phone || null,
+          invitedEmail: user?.email || null,
+          isAdmin: link.defaultIsAdmin,
+          isActive: true,
+          inviteUsedAt: new Date(),
+        },
+        include: { user: { select: { id: true, fullName: true, phone: true, email: true } } },
+      });
+      await tx.supplierInviteLink.update({
+        where: { id: link.id },
+        data: { usedCount: { increment: 1 } },
+      });
+      return created;
+    });
+
+    await notificationService
+      .notify({
+        userId: Number(userId),
+        type: 'SUPPLIER_INVITE_ACCEPTED',
+        title: 'Tham gia nhà cung cấp thành công',
+        body: `Bạn đã tham gia ${link.supplier?.name || 'nhà cung cấp'}.`,
+        link: '/supplier',
+      })
+      .catch(() => {});
+
+    return { member: publicMember(member) };
   },
 };
 

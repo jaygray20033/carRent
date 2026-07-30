@@ -35,6 +35,26 @@ export const completeSchema = z.object({
   note: z.string().trim().max(2000).optional().nullable(),
 });
 
+export const addExpenseSchema = z.object({
+  type: z.enum([
+    'TOLL_ROAD',
+    'PARKING',
+    'OVERTIME',
+    'EXTRA_KM',
+    'ONE_WAY_KM',
+    'OVERNIGHT',
+    'OTHER',
+  ]),
+  amount: z.coerce.number().positive('Số tiền phải > 0'),
+  description: z.string().trim().max(1000).optional().nullable(),
+  receiptUrl: z.string().trim().url().optional().nullable().or(z.literal('')),
+});
+
+export const expenseIdParamSchema = z.object({
+  id: z.coerce.number().int().positive(),
+  expenseId: z.coerce.number().int().positive(),
+});
+
 export const memberIdParamSchema = z.object({
   memberId: z.coerce.number().int().positive(),
 });
@@ -49,6 +69,8 @@ export default {
   assignDriverSchema,
   rejectSchema,
   completeSchema,
+  addExpenseSchema,
+  expenseIdParamSchema,
   memberIdParamSchema,
   settlementIdParamSchema,
 };

@@ -3,6 +3,7 @@
 import { Router } from 'express';
 import { authenticate } from '../../../middlewares/auth.middleware.js';
 import { validate } from '../../../middlewares/validate.middleware.js';
+import { rateLimit } from '../../../middlewares/rateLimit.middleware.js';
 import {
   requireSupplierMember,
   requireSupplierAdmin,
@@ -14,6 +15,8 @@ import {
   assignDriverSchema,
   rejectSchema,
   completeSchema,
+  addExpenseSchema,
+  expenseIdParamSchema,
   memberIdParamSchema,
   settlementIdParamSchema,
 } from './supplierPortal.validator.js';
@@ -23,9 +26,21 @@ import {
   updateMemberSchema,
   listSupplierSettlementsQuerySchema,
   submitSettlementDocumentsSchema,
+  createSupplierInviteLinkSchema,
+  supplierInviteLinkIdParamSchema,
+  joinSupplierViaLinkSchema,
+  supplierLinkTokenParamSchema,
 } from '../admin/suppliers/adminSupplier.validator.js';
 
 const router = Router();
+
+// Invite abuse guard — 20 member invites / hour / IP (mirrors corporate invite).
+const inviteLimiter = rateLimit({
+  max: 20,
+  windowSec: 3600,
+  keyPrefix: 'supplier:invite',
+  message: 'Bạn đã gửi quá nhiều lời mời. Vui lòng thử lại sau một giờ.',
+});
 
 // Invite accept — any authenticated user (not yet a member).
 router.post(
@@ -33,6 +48,21 @@ router.post(
   authenticate,
   validate(acceptSupplierInviteSchema, 'body'),
   supplierPortalController.acceptInvite
+);
+
+// ── Shareable multi-use join link ──────────────────────────────────
+// Public preview — no auth. New users hit this before registering.
+router.get(
+  '/invite/link/:token',
+  validate(supplierLinkTokenParamSchema, 'params'),
+  supplierPortalController.previewInviteLink
+);
+// Authenticated join — creates an ACTIVE member row immediately.
+router.post(
+  '/invite/link/join',
+  authenticate,
+  validate(joinSupplierViaLinkSchema, 'body'),
+  supplierPortalController.joinViaLink
 );
 
 // My supplier profile + membership.
@@ -48,6 +78,7 @@ router.get(
 router.post(
   '/me/members',
   authenticate,
+  inviteLimiter,
   requireSupplierAdmin,
   validate(inviteMemberSchema, 'body'),
   supplierPortalController.inviteMember
@@ -59,6 +90,44 @@ router.put(
   validate(memberIdParamSchema, 'params'),
   validate(updateMemberSchema, 'body'),
   supplierPortalController.updateMember
+);
+router.post(
+  '/me/members/:memberId/resend-invite',
+  authenticate,
+  inviteLimiter,
+  requireSupplierAdmin,
+  validate(memberIdParamSchema, 'params'),
+  supplierPortalController.resendMemberInvite
+);
+router.delete(
+  '/me/members/:memberId',
+  authenticate,
+  requireSupplierAdmin,
+  validate(memberIdParamSchema, 'params'),
+  supplierPortalController.removeMember
+);
+
+// Shareable join links — Supplier Admin manages.
+router.get(
+  '/me/invite-links',
+  authenticate,
+  requireSupplierAdmin,
+  supplierPortalController.listInviteLinks
+);
+router.post(
+  '/me/invite-links',
+  authenticate,
+  inviteLimiter,
+  requireSupplierAdmin,
+  validate(createSupplierInviteLinkSchema, 'body'),
+  supplierPortalController.createInviteLink
+);
+router.delete(
+  '/me/invite-links/:linkId',
+  authenticate,
+  requireSupplierAdmin,
+  validate(supplierInviteLinkIdParamSchema, 'params'),
+  supplierPortalController.revokeInviteLink
 );
 
 // ── Bookings ────────────────────────────────────────────────────────
@@ -82,6 +151,30 @@ router.get(
   requireSupplierMember,
   validate(bookingIdParamSchema, 'params'),
   supplierPortalController.costSummary
+);
+
+// ── Trip expenses (driver logs tolls, parking, overtime… on the road) ──
+router.get(
+  '/bookings/:id/expenses',
+  authenticate,
+  requireSupplierMember,
+  validate(bookingIdParamSchema, 'params'),
+  supplierPortalController.listExpenses
+);
+router.post(
+  '/bookings/:id/expenses',
+  authenticate,
+  requireSupplierMember,
+  validate(bookingIdParamSchema, 'params'),
+  validate(addExpenseSchema, 'body'),
+  supplierPortalController.addExpense
+);
+router.delete(
+  '/bookings/:id/expenses/:expenseId',
+  authenticate,
+  requireSupplierMember,
+  validate(expenseIdParamSchema, 'params'),
+  supplierPortalController.deleteExpense
 );
 
 // Supplier Admin: assign a driver / reject a dispatched trip.

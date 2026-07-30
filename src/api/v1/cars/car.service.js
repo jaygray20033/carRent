@@ -3,6 +3,7 @@ import prisma from '../../../config/db.js';
 import { NotFoundError } from '../../../utils/apiError.js';
 import { buildCacheKey, cached } from '../../../utils/cache.js';
 import { settingsService } from '../../../services/settingsService.js';
+import { BOOKING_STATUS } from '../../../config/constants.js';
 
 const LIST_CACHE_TTL = 300; // 5 minutes (§ Cache list theo querystring TTL 5 phút)
 
@@ -305,6 +306,55 @@ export const carService = {
       thumbnailUrl: v.thumbnailUrl || v.images?.[0]?.url || null,
       minPrice: v.pricePerDay,
       vehicleModel: v.model || null,
+    }));
+  },
+
+  /**
+   * GET /cars/:id/availability?from=&to= — Day 10.
+   * Returns the booked periods that still occupy the vehicle, so the FE date
+   * picker can grey out unavailable days. Active statuses are CONFIRMED,
+   * IN_USE, PENDING_PAYMENT and DRAFT — but DRAFT/PENDING_PAYMENT only count
+   * while their Redis hold has not expired (holdUntil in the future).
+   */
+  async getAvailability(id, { from, to } = {}) {
+    const vehicleId = Number(id);
+    const vehicle = await prisma.vehicle.findUnique({
+      where: { id: vehicleId },
+      select: { id: true },
+    });
+    if (!vehicle) throw new NotFoundError('Vehicle');
+
+    const now = new Date();
+    const where = {
+      vehicleId,
+      // CONFIRMED / IN_USE always occupy the slot; DRAFT / PENDING_PAYMENT only
+      // while their Redis hold has not expired (holdUntil in the future).
+      OR: [
+        { status: { in: [BOOKING_STATUS.CONFIRMED, BOOKING_STATUS.IN_USE] } },
+        {
+          status: { in: [BOOKING_STATUS.PENDING_PAYMENT, BOOKING_STATUS.DRAFT] },
+          holdUntil: { gt: now },
+        },
+      ],
+    };
+
+    // Optional window filter: keep bookings that overlap [from, to).
+    if (from || to) {
+      where.AND = [];
+      if (to) where.AND.push({ pickupAt: { lt: new Date(to) } });
+      if (from) where.AND.push({ returnAt: { gt: new Date(from) } });
+    }
+
+    const rows = await prisma.booking.findMany({
+      where,
+      orderBy: { pickupAt: 'asc' },
+      select: { pickupAt: true, returnAt: true, status: true },
+    });
+
+    return rows.map((b) => ({
+      from: b.pickupAt,
+      to: b.returnAt,
+      status: b.status,
     }));
   },
 

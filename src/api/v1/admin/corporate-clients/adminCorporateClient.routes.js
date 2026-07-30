@@ -1,5 +1,5 @@
 // src/api/v1/admin/corporate-clients/adminCorporateClient.routes.js
-// B2B Day 2 UC-61 — OtoRent Admin CRUD for Corporate Clients.
+// B2B Day 2 UC-61 — CarGoGo Admin CRUD for Corporate Clients.
 import { Router } from 'express';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { requireRole } from '../../../../middlewares/rbac.middleware.js';

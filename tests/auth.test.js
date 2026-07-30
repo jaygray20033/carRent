@@ -71,16 +71,16 @@ describe('Auth flow — happy path (UC-01, UC-02, UC-03)', () => {
     expect(res.body.data.user.status).toBe('PENDING');
     expect(res.body.data.requireOtp).toBe(true);
 
-    // OTP must have been "sent" via the mocked SMS sender
-    expect(lastOtpFor(TEST_USER.phone, 'REGISTER')).toMatch(/^\d{6}$/);
+    // OTP must have been "sent" via the mocked SMS sender (keyed by email now)
+    expect(lastOtpFor(TEST_USER.email, 'REGISTER')).toMatch(/^\d{6}$/);
   });
 
   it('UC-03: verifies the REGISTER OTP and activates the account', async () => {
-    const code = lastOtpFor(TEST_USER.phone, 'REGISTER');
+    const code = lastOtpFor(TEST_USER.email, 'REGISTER');
     expect(code).toBeDefined();
 
     const res = await request(app).post(`${BASE}/auth/verify-otp`).send({
-      identifier: TEST_USER.phone,
+      identifier: TEST_USER.email,
       code,
       purpose: 'REGISTER',
     });

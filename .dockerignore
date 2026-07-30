@@ -1,6 +1,7 @@
 node_modules
 npm-debug.log
 .env
+.env.prod
 .env.*.local
 logs
 *.log
@@ -9,3 +10,5 @@ coverage
 .gitignore
 Dockerfile.dev
 .dockerignore
+.claude
+tests

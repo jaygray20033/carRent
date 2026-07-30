@@ -82,6 +82,13 @@ export const corporateController = {
     return success(res, result);
   }),
 
+  // PATCH /me/company — corporate admin flips self-service settings (auto-approve).
+  // Scoped to req.corporate.id from the middleware, never a body id.
+  updateMyCompany: asyncHandler(async (req, res) => {
+    const result = await corporateEmployeeService.updateMyCompany(req.corporate.id, req.body);
+    return success(res, result, 'Đã cập nhật cấu hình công ty');
+  }),
+
   myPriceConfig: asyncHandler(async (req, res) => {
     const priceConfig = await corporateBookingService.getPriceConfigForMembership(
       req.corporateEmployee
@@ -142,6 +149,51 @@ export const corporateController = {
     return success(res, result, 'Đã xoá nhân viên khỏi công ty');
   }),
 
+  resendEmployeeInvite: asyncHandler(async (req, res) => {
+    const result = await corporateEmployeeService.resendInvite(
+      req.corporate.id,
+      req.params.id
+    );
+    return success(
+      res,
+      { employee: result.employee, inviteToken: result.inviteToken },
+      'Đã gửi lại lời mời'
+    );
+  }),
+
+  // ── Shareable multi-use join link ────────────────────────────────
+  createInviteLink: asyncHandler(async (req, res) => {
+    const link = await corporateEmployeeService.createInviteLink(
+      req.corporate.id,
+      req.body,
+      req.user.id
+    );
+    return created(res, { link }, 'Đã tạo link mời');
+  }),
+
+  listInviteLinks: asyncHandler(async (req, res) => {
+    const links = await corporateEmployeeService.listInviteLinks(req.corporate.id);
+    return success(res, { links });
+  }),
+
+  revokeInviteLink: asyncHandler(async (req, res) => {
+    const result = await corporateEmployeeService.revokeInviteLink(
+      req.corporate.id,
+      req.params.linkId
+    );
+    return success(res, result, 'Đã thu hồi link mời');
+  }),
+
+  previewInviteLink: asyncHandler(async (req, res) => {
+    const result = await corporateEmployeeService.previewInviteLink(req.params.token);
+    return success(res, result);
+  }),
+
+  joinViaLink: asyncHandler(async (req, res) => {
+    const result = await corporateEmployeeService.joinViaLink(req.body.token, req.user.id);
+    return success(res, result, 'Đã tham gia công ty');
+  }),
+
   // ── Bookings (Day 3) ─────────────────────────────────────────────
 
   createBooking: asyncHandler(async (req, res) => {
@@ -200,7 +252,7 @@ export const corporateController = {
   }),
 
   startBooking: asyncHandler(async (req, res) => {
-    // OtoRent Admin advances APPROVED → IN_PROGRESS
+    // CarGoGo Admin advances APPROVED → IN_PROGRESS
     const booking = await corporateBookingService.startTrip(req.params.id);
     return success(res, { booking }, 'Chuyến đã bắt đầu');
   }),
@@ -311,6 +363,15 @@ export const corporateController = {
     return success(res, { booking }, 'Corporate Admin đã xác nhận');
   }),
 
+  confirmAndFinalize: asyncHandler(async (req, res) => {
+    const booking = await tripExpenseService.confirmAndFinalize(
+      req.corporateEmployee,
+      req.params.id,
+      req.body
+    );
+    return success(res, { booking }, 'Đã xác nhận & chốt chuyến');
+  }),
+
   confirmOtorent: asyncHandler(async (req, res) => {
     const booking = await tripExpenseService.confirmOtorent(req.params.id);
     return success(res, { booking }, 'OtoRent đã xác nhận cuối');
@@ -329,6 +390,27 @@ export const corporateController = {
   createSettlement: asyncHandler(async (req, res) => {
     const settlement = await settlementService.create(req.params.id, req.body);
     return created(res, { settlement }, 'Đã tạo kỳ quyết toán');
+  }),
+
+  createSettlementForBooking: asyncHandler(async (req, res) => {
+    const settlement = await settlementService.createForBooking(req.params.id);
+    return created(res, { settlement }, 'Đã tạo bảng kê cho chuyến');
+  }),
+
+  // Global settlement queue for OtoRent staff — defaults to PAYMENT_DECLARED so the
+  // "Xác nhận thanh toán" tab shows companies that reported a bank transfer.
+  listSettlementsQueue: asyncHandler(async (req, res) => {
+    const { page, size } = parsePagination(req.query, 20);
+    const result = await settlementService.listAll({
+      status: req.query.status,
+      page,
+      size,
+    });
+    return paginated(res, result.items, {
+      total: result.total,
+      page: result.page,
+      limit: result.size,
+    });
   }),
 
   listSettlementsAdmin: asyncHandler(async (req, res) => {
@@ -370,6 +452,12 @@ export const corporateController = {
     return res.send(pdf);
   }),
 
+  // Admin-side QR (no ownership scoping — staff act on any company's settlement).
+  getSettlementQr: asyncHandler(async (req, res) => {
+    const { settlement, qr } = await settlementService.getQr(req.params.id);
+    return success(res, { qr, status: settlement.status, totalAmount: settlement.totalAmount });
+  }),
+
   listSettlementsCorporate: asyncHandler(async (req, res) => {
     const { page, size } = parsePagination(req.query, 20);
     const result = await settlementService.listByCorporate(req.corporate.id, {
@@ -392,6 +480,14 @@ export const corporateController = {
     return success(res, { settlement });
   }),
 
+  getSettlementQrCorporate: asyncHandler(async (req, res) => {
+    const { settlement, qr } = await settlementService.getQr(req.params.id);
+    if (settlement.corporateId !== req.corporate.id) {
+      throw new ForbiddenError('Settlement không thuộc công ty của bạn');
+    }
+    return success(res, { qr, status: settlement.status, totalAmount: settlement.totalAmount });
+  }),
+
   confirmSettlement: asyncHandler(async (req, res) => {
     const settlement = await settlementService.confirmByCorporate(
       req.corporateEmployee,
@@ -407,6 +503,33 @@ export const corporateController = {
       req.body
     );
     return success(res, { settlement }, 'Đã gửi dispute');
+  }),
+
+  // Manual bank-transfer: corporate admin bấm "đã thanh toán" → báo admin OtoRent.
+  declareSettlementPaid: asyncHandler(async (req, res) => {
+    const settlement = await settlementService.declareByCorporate(
+      req.corporateEmployee,
+      req.params.id
+    );
+    return success(res, { settlement }, 'Đã báo thanh toán, OtoRent sẽ kiểm tra');
+  }),
+
+  // Follow-up upload of the transfer-proof image (multipart field "image").
+  uploadSettlementProof: asyncHandler(async (req, res) => {
+    if (!req.file) {
+      throw new ValidationError([{ field: 'image', message: 'Vui lòng chọn ảnh chuyển khoản' }]);
+    }
+    // Ownership/status check before storing (IDOR guard) — no write/notify yet.
+    await settlementService.assertCanAttachProof(req.corporateEmployee, req.params.id);
+    const { url } = await storage.upload(req.file, {
+      folder: `corporate/settlement-proofs/${req.params.id}`,
+    });
+    const settlement = await settlementService.attachProof(
+      req.corporateEmployee,
+      req.params.id,
+      url
+    );
+    return success(res, { settlement, proofUrl: url }, 'Đã gửi ảnh thanh toán');
   }),
 
   // ── Dashboard & reports (Day 6) ──────────────────────────────────

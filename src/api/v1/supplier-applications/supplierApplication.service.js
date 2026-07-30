@@ -174,7 +174,7 @@ export const supplierApplicationService = {
           userId: application.userId,
           type: 'SUPPLIER_APPLICATION_APPROVED',
           title: 'Hồ sơ đối tác nhà xe đã được duyệt',
-          body: 'Chúc mừng! Tài khoản của bạn đã trở thành đối tác nhà xe của OtoRent.',
+          body: 'Chúc mừng! Tài khoản của bạn đã trở thành đối tác nhà xe của CarGoGo.',
           link: '/supplier',
         })
         .catch(() => {});

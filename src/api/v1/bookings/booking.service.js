@@ -16,6 +16,7 @@ import { BOOKING_STATUS, TTL } from '../../../config/constants.js';
 import RedisLockService from '../../../services/RedisLockService.js';
 import { couponService } from '../coupons/coupon.service.js';
 import { notificationService } from '../../../services/notificationService.js';
+import { settingsService } from '../../../services/settingsService.js';
 import logger from '../../../config/logger.js';
 
 // Methods whose refund settles instantly against the internal wallet balance.
@@ -72,27 +73,70 @@ export const calcTotalDays = (pickupAt, returnAt) => {
 };
 
 /**
- * Recompute the price breakdown from raw inputs.
- * Insurance is percent-based on the rental base price (InsurancePlan.ratePercent).
+ * Recompute the full price breakdown from raw inputs (UC-17 / Day 11 formula):
+ *
+ *   base_price      = pricePerDay × totalDays
+ *   driver_fee      = withDriver ? driverRate × totalDays : 0
+ *   insurance_fee   = base_price × insurancePlan.ratePercent%
+ *   dropoff_penalty = dropoffDifferent ? dropoffPenalty : 0
+ *   tax             = (base_price + driver_fee) × taxRate%
+ *   subtotal        = base_price + driver_fee + insurance_fee + dropoff_penalty + tax
+ *   deposit         = refundable hold added to the charged amount
+ *   total           = subtotal − discount + deposit
+ *
+ * The pricing knobs (driverRate, dropoffPenalty, taxRate, deposit) default to 0
+ * so the pure helper stays deterministic; real callers pass them from
+ * settingsService.getPricingConfig() + the vehicle deposit.
  */
-export const computeBreakdown = ({ pricePerDay, totalDays, insurancePlan, couponDiscount = 0 }) => {
+export const computeBreakdown = ({
+  pricePerDay,
+  totalDays,
+  insurancePlan,
+  couponDiscount = 0,
+  withDriver = false,
+  driverRate = 0,
+  dropoffDifferent = false,
+  dropoffPenalty = 0,
+  taxRate = 0,
+  deposit = 0,
+}) => {
   const perDay = Number(pricePerDay);
   const basePrice = perDay * totalDays;
+  const driverFee = withDriver ? Math.round(Number(driverRate) * totalDays) : 0;
   const ratePercent = insurancePlan ? Number(insurancePlan.ratePercent) : 0;
   const insuranceFee = Math.round((basePrice * ratePercent) / 100);
-  const subtotal = basePrice + insuranceFee;
+  const dropoffFee = dropoffDifferent ? Math.round(Number(dropoffPenalty)) : 0;
+  const taxAmount = Math.round(((basePrice + driverFee) * Number(taxRate)) / 100);
+  const subtotal = basePrice + driverFee + insuranceFee + dropoffFee + taxAmount;
   const discount = Math.min(couponDiscount, subtotal);
-  const totalAmount = subtotal - discount;
+  const depositAmount = Math.round(Number(deposit)) || 0;
+  const totalAmount = subtotal - discount + depositAmount;
   return {
     pricePerDay: perDay,
     totalDays,
     basePrice,
+    driverFee,
     insuranceRatePercent: ratePercent,
     insuranceFee,
+    dropoffPenalty: dropoffFee,
+    taxRate: Number(taxRate),
+    taxAmount,
     subtotal,
     couponDiscount: discount,
+    depositAmount,
     totalAmount,
   };
+};
+
+/**
+ * Whether the dropoff differs from the pickup point (drives dropoff_penalty).
+ * Empty/absent dropoff means "return to pickup" → not different.
+ */
+const isDropoffDifferent = (pickupPoint, dropoffPoint) => {
+  const a = (pickupPoint ?? '').trim();
+  const b = (dropoffPoint ?? '').trim();
+  if (!b) return false;
+  return a !== b;
 };
 
 /** Verify no overlapping active booking exists for this vehicle/period. */
@@ -147,10 +191,17 @@ export const bookingService = {
       });
     }
 
+    const pricing = await settingsService.getPricingConfig();
     const breakdown = computeBreakdown({
       pricePerDay: vehicle.pricePerDay,
       totalDays,
       insurancePlan,
+      withDriver: rentalType === 'WITH_DRIVER',
+      driverRate: pricing.driverRate,
+      dropoffDifferent: isDropoffDifferent(pickupPoint, dropoffPoint),
+      dropoffPenalty: pricing.dropoffPenalty,
+      taxRate: pricing.taxRate,
+      deposit: vehicle.depositAmount ?? pricing.depositDefault,
     });
 
     const holdUntil = new Date(Date.now() + TTL.DRAFT * 1000);
@@ -171,7 +222,11 @@ export const bookingService = {
         totalDays,
         pricePerDay: breakdown.pricePerDay,
         subtotal: breakdown.subtotal,
+        driverFee: breakdown.driverFee,
         insuranceFee: breakdown.insuranceFee,
+        dropoffPenalty: breakdown.dropoffPenalty,
+        taxAmount: breakdown.taxAmount,
+        depositAmount: breakdown.depositAmount,
         couponDiscount: 0,
         totalAmount: breakdown.totalAmount,
         status: BOOKING_STATUS.DRAFT,
@@ -230,12 +285,23 @@ export const bookingService = {
       });
     }
 
+    // Dropoff may change, which flips the dropoff penalty. Everything else
+    // (rental type, deposit) is recomputed from the stored booking + config so
+    // the full formula stays consistent with createDraft.
+    const nextDropoffPoint = dropoffPoint !== undefined ? dropoffPoint : booking.dropoffPoint;
+    const pricing = await settingsService.getPricingConfig();
     // Re-apply existing coupon discount on top of the recomputed subtotal.
     const breakdown = computeBreakdown({
       pricePerDay: booking.pricePerDay,
       totalDays: booking.totalDays,
       insurancePlan,
       couponDiscount: booking.couponDiscount,
+      withDriver: booking.rentalType === 'WITH_DRIVER',
+      driverRate: pricing.driverRate,
+      dropoffDifferent: isDropoffDifferent(booking.pickupPoint, nextDropoffPoint),
+      dropoffPenalty: pricing.dropoffPenalty,
+      taxRate: pricing.taxRate,
+      deposit: booking.depositAmount,
     });
 
     await RedisLockService.extendHold(
@@ -254,6 +320,10 @@ export const bookingService = {
         ...(dropoffPoint !== undefined ? { dropoffPoint } : {}),
         insuranceFee: breakdown.insuranceFee,
         subtotal: breakdown.subtotal,
+        driverFee: breakdown.driverFee,
+        dropoffPenalty: breakdown.dropoffPenalty,
+        taxAmount: breakdown.taxAmount,
+        depositAmount: breakdown.depositAmount,
         couponDiscount: breakdown.couponDiscount,
         totalAmount: breakdown.totalAmount,
         holdUntil,
@@ -293,11 +363,18 @@ export const bookingService = {
       couponResult = await couponService.validate(couponCode, bookingId, userId);
     }
 
+    const pricing = await settingsService.getPricingConfig();
     const breakdown = computeBreakdown({
       pricePerDay: booking.pricePerDay,
       totalDays: booking.totalDays,
       insurancePlan,
       couponDiscount: couponResult?.discount ?? 0,
+      withDriver: booking.rentalType === 'WITH_DRIVER',
+      driverRate: pricing.driverRate,
+      dropoffDifferent: isDropoffDifferent(booking.pickupPoint, booking.dropoffPoint),
+      dropoffPenalty: pricing.dropoffPenalty,
+      taxRate: pricing.taxRate,
+      deposit: booking.depositAmount,
     });
 
     const holdUntil = new Date(Date.now() + TTL.PAYMENT * 1000);
@@ -317,8 +394,12 @@ export const bookingService = {
         where: { id: booking.id },
         data: {
           couponId: couponResult?.coupon.id ?? null,
-          insuranceFee: breakdown.insuranceFee,
           subtotal: breakdown.subtotal,
+          driverFee: breakdown.driverFee,
+          insuranceFee: breakdown.insuranceFee,
+          dropoffPenalty: breakdown.dropoffPenalty,
+          taxAmount: breakdown.taxAmount,
+          depositAmount: breakdown.depositAmount,
           couponDiscount: breakdown.couponDiscount,
           totalAmount: breakdown.totalAmount,
           status: BOOKING_STATUS.PENDING_PAYMENT,

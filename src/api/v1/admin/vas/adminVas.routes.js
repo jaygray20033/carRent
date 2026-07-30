@@ -1,5 +1,5 @@
 // src/api/v1/admin/vas/adminVas.routes.js
-// ENT-Day 2 UC-76 — OtoRent Admin VAS catalog CRUD.
+// ENT-Day 2 UC-76 — CarGoGo Admin VAS catalog CRUD.
 import { Router } from 'express';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { requireRole } from '../../../../middlewares/rbac.middleware.js';

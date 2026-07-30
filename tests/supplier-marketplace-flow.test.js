@@ -1132,7 +1132,18 @@ describe('Supplier Marketplace — payout (SupplierSettlement) workflow', () => 
       .get(`${BASE}/supplier/settlements/${settlementId}`)
       .set('Authorization', `Bearer ${supplierAdminToken}`);
     expect(mine.status).toBe(200);
-    expect(mine.body.data.settlement.id).toBe(settlementId);
+    const s = mine.body.data.settlement;
+    expect(s.id).toBe(settlementId);
+    // White-label: supplier sees only their payout, never OtoRent's margin.
+    // Gross (totalFinalAmount) + commission would let them back out the cut.
+    expect(s.supplierPayout).toBe(528_000);
+    expect(s.totalFinalAmount).toBeUndefined();
+    expect(s.totalCommissionAmount).toBeUndefined();
+    for (const b of s.bookings ?? []) {
+      expect(b.finalAmount).toBeUndefined();
+      expect(b.commissionAmount).toBeUndefined();
+      expect(b.commissionRate).toBeUndefined();
+    }
 
     // Admin scoping: a mismatched supplier id in the path must 403.
     const otherSupplier = await prisma.supplier.create({
@@ -1234,5 +1245,368 @@ describe('Supplier Marketplace — payout (SupplierSettlement) workflow', () => 
       .send({ periodStart: '2020-01-01', periodEnd: '2020-01-31' });
     expect(res.status).toBe(422);
     expect(res.body.error?.code || res.body.code).toBe('NO_ELIGIBLE_BOOKINGS');
+  });
+});
+
+describe('Supplier Marketplace — invite resend / revoke / accept guards', () => {
+  test('supplier admin resends a pending invite → new token, still pending', async () => {
+    const phone = `077${stamp}`.slice(0, 10);
+    const first = await request(app)
+      .post(`${BASE}/supplier/me/members`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({ phone, fullName: 'Resend Target', isAdmin: false });
+    expect(first.status).toBe(201);
+    const memberId = first.body.data.member.id;
+    const firstToken = first.body.data.inviteToken;
+
+    const resend = await request(app)
+      .post(`${BASE}/supplier/me/members/${memberId}/resend-invite`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`);
+    expect(resend.status).toBe(200);
+    expect(resend.body.data.inviteToken).toBeTruthy();
+    expect(resend.body.data.inviteToken).not.toBe(firstToken);
+    expect(resend.body.data.member.isActive).toBe(false);
+
+    // old token is dead, new token still accepts
+    const stale = await request(app)
+      .post(`${BASE}/supplier/invite/accept`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({ token: firstToken });
+    expect(stale.status).toBe(404);
+  });
+
+  test('resend on an already-active member → 409 INVITE_ALREADY_USED', async () => {
+    // supplierAdminMember is active from the full-flow suite
+    const res = await request(app)
+      .post(`${BASE}/supplier/me/members/${supplierAdminMember.id}/resend-invite`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`);
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe('INVITE_ALREADY_USED');
+  });
+
+  test('supplier admin revokes a pending invite → soft-removed', async () => {
+    const phone = `078${stamp}`.slice(0, 10);
+    const inv = await request(app)
+      .post(`${BASE}/supplier/me/members`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({ phone, fullName: 'Revoke Target', isAdmin: false });
+    expect(inv.status).toBe(201);
+    const memberId = inv.body.data.member.id;
+
+    const del = await request(app)
+      .delete(`${BASE}/supplier/me/members/${memberId}`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`);
+    expect(del.status).toBe(200);
+    expect(del.body.data.deleted).toBe(true);
+
+    const row = await prisma.supplierMember.findUnique({ where: { id: memberId } });
+    expect(row.isActive).toBe(false);
+    expect(row.inviteToken).toBeNull();
+  });
+
+  test('accept when user is bound to an INACTIVE row elsewhere → clean 409, not P2002 500', async () => {
+    // Fresh user + a dangling INACTIVE bound member on a second supplier.
+    const busy = await prisma.user.create({
+      data: {
+        roleId: customerRole.id,
+        fullName: 'Busy Bound',
+        phone: `079${stamp}`.slice(0, 10),
+        email: `busybound_${stamp}@ex.com`,
+        passwordHash: 'x',
+        status: 'ACTIVE',
+      },
+    });
+    const otherSupplier = await prisma.supplier.create({
+      data: { name: `Dangling MKT ${stamp}`, isActive: true },
+    });
+    await prisma.supplierMember.create({
+      data: { supplierId: otherSupplier.id, userId: busy.id, isActive: false },
+    });
+
+    // Unbound pending invite on the main supplier.
+    const inv = await request(app)
+      .post(`${BASE}/supplier/me/members`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({ phone: `060${stamp}`.slice(0, 10), fullName: 'Unbound Invite', isAdmin: false });
+    expect(inv.status).toBe(201);
+
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/accept`)
+      .set('Authorization', `Bearer ${sign(busy.id)}`)
+      .send({ token: inv.body.data.inviteToken });
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe('ALREADY_MEMBER_OTHER_SUPPLIER');
+
+    // Cleanup
+    await prisma.supplierMember.deleteMany({ where: { supplierId: otherSupplier.id } }).catch(() => {});
+    await prisma.supplier.delete({ where: { id: otherSupplier.id } }).catch(() => {});
+    await prisma.notification.deleteMany({ where: { userId: busy.id } }).catch(() => {});
+    await prisma.user.delete({ where: { id: busy.id } }).catch(() => {});
+  });
+});
+
+// ── Shareable multi-use join link (Slack-style) ─────────────────────────
+describe('Supplier Marketplace — shareable join link', () => {
+  const joinUserIds = [];
+
+  const makeUser = async (suffix) => {
+    const u = await prisma.user.create({
+      data: {
+        roleId: customerRole.id,
+        fullName: `Link Joiner ${suffix}`,
+        phone: `06${suffix}${stamp}`.slice(0, 10),
+        email: `linkjoin_${suffix}_${stamp}@ex.com`,
+        passwordHash: 'x',
+        status: 'ACTIVE',
+      },
+    });
+    joinUserIds.push(u.id);
+    return u;
+  };
+
+  afterAll(async () => {
+    if (joinUserIds.length) {
+      await prisma.supplierMember.deleteMany({ where: { userId: { in: joinUserIds } } }).catch(() => {});
+      await prisma.notification.deleteMany({ where: { userId: { in: joinUserIds } } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: { in: joinUserIds } } }).catch(() => {});
+    }
+    await prisma.supplierInviteLink.deleteMany({ where: { supplierId: supplier.id } }).catch(() => {});
+  });
+
+  test('supplier admin creates a shareable link → token returned, unused', async () => {
+    const res = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    expect(res.status).toBe(201);
+    expect(res.body.data.link.token).toBeTruthy();
+    expect(res.body.data.link.usedCount).toBe(0);
+    expect(res.body.data.link.isActive).toBe(true);
+    expect(res.body.data.link.defaultIsAdmin).toBe(false);
+  });
+
+  test('non-admin (driver) cannot create a link → 403', async () => {
+    const res = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierDriverToken}`)
+      .send({});
+    expect(res.status).toBe(403);
+  });
+
+  test('public preview (no auth) → valid + supplier name, no token leak', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const res = await request(app).get(`${BASE}/supplier/invite/link/${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.valid).toBe(true);
+    expect(res.body.data.supplier.id).toBe(supplier.id);
+    expect(res.body.data.supplier.name).toBeTruthy();
+    expect(res.body.data.token).toBeUndefined();
+  });
+
+  test('fresh user joins via link → ACTIVE driver, role promoted, name/phone/email captured', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('a');
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(200);
+    expect(res.body.data.member.isActive).toBe(true);
+    expect(res.body.data.member.supplierId).toBe(supplier.id);
+    expect(res.body.data.member.userId).toBe(joiner.id);
+    // Driver identity captured on the member row.
+    expect(res.body.data.member.fullName).toBe(joiner.fullName);
+    expect(res.body.data.member.invitedPhone).toBe(joiner.phone);
+    expect(res.body.data.member.invitedEmail).toBe(joiner.email);
+    expect(res.body.data.member.isAdmin).toBe(false);
+
+    // Role promoted to SUPPLIER_DRIVER.
+    const after = await prisma.user.findUnique({
+      where: { id: joiner.id },
+      include: { role: true },
+    });
+    expect(after.role.code).toBe('SUPPLIER_DRIVER');
+
+    // usedCount incremented.
+    const link = await prisma.supplierInviteLink.findUnique({ where: { token } });
+    expect(link.usedCount).toBe(1);
+  });
+
+  test('same user joins the same link twice → idempotent, no double count', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('b');
+    const first = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(second.status).toBe(200);
+    expect(second.body.data.alreadyMember).toBe(true);
+
+    const link = await prisma.supplierInviteLink.findUnique({ where: { token } });
+    expect(link.usedCount).toBe(1); // not double-counted
+  });
+
+  test('link with defaultIsAdmin → joiner promoted to SUPPLIER_ADMIN', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({ defaultIsAdmin: true });
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('c');
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(200);
+    expect(res.body.data.member.isAdmin).toBe(true);
+
+    const after = await prisma.user.findUnique({
+      where: { id: joiner.id },
+      include: { role: true },
+    });
+    expect(after.role.code).toBe('SUPPLIER_ADMIN');
+  });
+
+  test('maxUses reached → 409 LINK_EXHAUSTED', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({ maxUses: 1 });
+    const token = created.body.data.link.token;
+
+    const first = await makeUser('d');
+    const ok = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(first.id)}`)
+      .send({ token });
+    expect(ok.status).toBe(200);
+
+    const second = await makeUser('e');
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(second.id)}`)
+      .send({ token });
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe('LINK_EXHAUSTED');
+
+    // Preview also reports exhausted.
+    const preview = await request(app).get(`${BASE}/supplier/invite/link/${token}`);
+    expect(preview.body.data.valid).toBe(false);
+    expect(preview.body.data.reason).toBe('EXHAUSTED');
+  });
+
+  test('expired link → 410 LINK_EXPIRED', async () => {
+    const { generateInviteToken } = await import('../src/utils/corporateInvite.js');
+    const token = generateInviteToken();
+    await prisma.supplierInviteLink.create({
+      data: {
+        supplierId: supplier.id,
+        token,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    const joiner = await makeUser('f');
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(410);
+    expect(res.body.error?.code || res.body.code).toBe('LINK_EXPIRED');
+  });
+
+  test('revoked link → preview invalid + join 409 LINK_REVOKED', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+    const linkId = created.body.data.link.id;
+
+    const del = await request(app)
+      .delete(`${BASE}/supplier/me/invite-links/${linkId}`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`);
+    expect(del.status).toBe(200);
+    expect(del.body.data.revoked).toBe(true);
+
+    const preview = await request(app).get(`${BASE}/supplier/invite/link/${token}`);
+    expect(preview.body.data.valid).toBe(false);
+    expect(preview.body.data.reason).toBe('REVOKED');
+
+    const joiner = await makeUser('g');
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe('LINK_REVOKED');
+  });
+
+  test('join when already bound to another supplier → 409 ALREADY_MEMBER_OTHER_SUPPLIER', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('h');
+    const otherSupplier = await prisma.supplier.create({
+      data: { name: `Other Link Sup ${stamp}`, isActive: true },
+    });
+    await prisma.supplierMember.create({
+      data: { supplierId: otherSupplier.id, userId: joiner.id, isActive: true },
+    });
+
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .set('Authorization', `Bearer ${sign(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(409);
+    expect(res.body.error?.code || res.body.code).toBe('ALREADY_MEMBER_OTHER_SUPPLIER');
+
+    await prisma.supplierMember.deleteMany({ where: { supplierId: otherSupplier.id } }).catch(() => {});
+    await prisma.supplier.delete({ where: { id: otherSupplier.id } }).catch(() => {});
+  });
+
+  test('unauthenticated join → 401', async () => {
+    const created = await request(app)
+      .post(`${BASE}/supplier/me/invite-links`)
+      .set('Authorization', `Bearer ${supplierAdminToken}`)
+      .send({});
+    const res = await request(app)
+      .post(`${BASE}/supplier/invite/link/join`)
+      .send({ token: created.body.data.link.token });
+    expect(res.status).toBe(401);
+  });
+
+  test('preview a non-existent token → valid:false NOT_FOUND', async () => {
+    const res = await request(app).get(
+      `${BASE}/supplier/invite/link/deadbeefdeadbeefdeadbeefdeadbeef`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.data.valid).toBe(false);
+    expect(res.body.data.reason).toBe('NOT_FOUND');
   });
 });

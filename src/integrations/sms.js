@@ -1,15 +1,21 @@
-// src/integrations/sms.js — SMS sender (stub)
-// Day 3: chưa tích hợp SMS thật → log OTP ra console.
-// Cấu trúc như một "job" để sau này thay bằng Twilio/eSMS dễ dàng.
+// src/integrations/sms.js — OTP sender
+// Sends the OTP over SMS (via the configured provider) and, when an email is
+// available, also emails it. In development the SMS facade forces mock mode, so
+// the code is logged to console + delivered to Mailhog for dev/E2E.
 import logger from '../config/logger.js';
 import { sendEmail } from './email.js';
+import { sendSms } from './sms/index.js';
+
+const OTP_PURPOSE_TEXT = {
+  REGISTER: 'dang ky tai khoan',
+  RESET: 'dat lai mat khau',
+  CHANGE_PHONE: 'doi so dien thoai',
+};
 
 /**
- * Enqueue an OTP "send job". Logs to console (SMS gateway not integrated) and,
- * when an email is available, also sends the OTP by email so it lands in
- * Mailhog during dev/E2E (Day 43 reads the OTP from the Mailhog API).
- *
- * In production: push to a queue (BullMQ) and a worker calls Twilio/eSMS.
+ * Enqueue an OTP "send job". Sends the code by SMS through the configured
+ * provider (mock in dev; eSMS/Twilio in prod) and, when an email is available,
+ * also emails it so it lands in Mailhog during dev/E2E.
  *
  * @param {Object} job
  * @param {string} job.to        - recipient phone
@@ -18,25 +24,41 @@ import { sendEmail } from './email.js';
  * @param {number} job.ttl       - TTL seconds
  * @param {string} [job.email]   - recipient email (OTP also emailed if present)
  */
+const isEmail = (v) => typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
 export const enqueueSendOtp = async ({ to, code, purpose, ttl, email }) => {
-  console.log(
-    `\n📲 [OTP][${purpose}] -> ${to}\n` +
-      `   code : ${code}\n` +
-      `   ttl  : ${ttl}s\n` +
-      `   (DEV ONLY — SMS gateway not integrated yet)\n`
-  );
   logger.info(`OTP enqueued for ${to} (${purpose})`);
 
-  if (email) {
+  // Resolve the email recipient: an explicit `email`, or `to` when it is itself
+  // an email address (OTP delivery is email-first in this deployment).
+  const emailTo = email || (isEmail(to) ? to : null);
+
+  // Only attempt SMS when `to` is an actual phone number. Best-effort: an SMS
+  // gateway failure must never break registration/reset, especially since the
+  // OTP is also emailed below when an email recipient is available.
+  if (to && !isEmail(to)) {
+    try {
+      const action = OTP_PURPOSE_TEXT[purpose] || 'xac thuc';
+      const ttlMin = Math.round((ttl || 0) / 60);
+      await sendSms({
+        to,
+        message: `CarGoGo: Ma xac thuc ${action} cua ban la ${code}. Hieu luc ${ttlMin} phut. Khong chia se ma nay.`,
+      });
+    } catch (err) {
+      logger.warn(`OTP SMS failed for ${to}: ${err.message}`);
+    }
+  }
+
+  if (emailTo) {
     // Best-effort: never let email failure break registration.
     try {
       await sendEmail({
-        to: email,
+        to: emailTo,
         template: 'otp',
         data: { code, purpose, ttlMinutes: Math.round((ttl || 0) / 60) },
       });
     } catch (err) {
-      logger.warn(`OTP email failed for ${email}: ${err.message}`);
+      logger.warn(`OTP email failed for ${emailTo}: ${err.message}`);
     }
   }
 

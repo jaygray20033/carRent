@@ -9,6 +9,7 @@ import {
   ForbiddenError,
   UnprocessableError,
 } from '../../../utils/apiError.js';
+import { settingsService } from '../../../services/settingsService.js';
 
 export const couponService = {
   async validate(code, bookingId, userId) {
@@ -78,9 +79,12 @@ export const couponService = {
         break;
 
       case 'FREE_DRIVER': {
-        const driverRate = 500000;
-        const driverFee = driverRate * booking.totalDays;
+        // Waive exactly the driver fee the breakdown charges: driver_rate ×
+        // days, with driver_rate read from settings (not hardcoded) so the
+        // discount can never diverge from what was actually billed.
         if (booking.rentalType === 'WITH_DRIVER') {
+          const { driverRate } = await settingsService.getPricingConfig();
+          const driverFee = Math.round(driverRate * booking.totalDays);
           discount = driverFee;
           message = `Free driver service (${driverFee.toLocaleString('vi-VN')} VND)`;
         } else {

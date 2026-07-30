@@ -60,7 +60,31 @@ async function getScopedSettlement(id, supplierId) {
   if (supplierId != null && settlement.supplierId !== Number(supplierId)) {
     throw new ForbiddenError('Kỳ payout không thuộc nhà cung cấp của bạn');
   }
+  // White-label: CarGoGo's margin is internal. When the settlement is read
+  // through the supplier portal (supplierId scope present), strip commission so
+  // the supplier only sees trip revenue + their payout, never the cut CarGoGo took.
+  if (supplierId != null) return stripCommission(settlement);
   return settlement;
+}
+
+/**
+ * Remove margin fields for supplier-facing reads. CarGoGo's cut must stay
+ * internal, so we drop not just the commission columns but also the trip GROSS
+ * (`totalFinalAmount` / per-booking `finalAmount`): with `supplierPayout` shown,
+ * gross would let the supplier back out commission = gross − payout. The
+ * supplier only ever sees what they are owed (`supplierPayout`), never CarGoGo's
+ * revenue on the trip.
+ */
+function stripCommission(settlement) {
+  // eslint-disable-next-line no-unused-vars
+  const { totalCommissionAmount, totalFinalAmount, ...rest } = settlement;
+  return {
+    ...rest,
+    bookings: (settlement.bookings ?? []).map(
+      // eslint-disable-next-line no-unused-vars
+      ({ commissionRate, commissionAmount, finalAmount, ...booking }) => booking
+    ),
+  };
 }
 
 export const supplierSettlementService = {
@@ -214,7 +238,8 @@ export const supplierSettlementService = {
       body: `Kỳ payout #${updated.id} của ${updated.supplier.name} đang chờ xác minh.`,
       link: `/admin/suppliers/${updated.supplierId}`,
     });
-    return updated;
+    // Supplier-facing return — strip CarGoGo's margin.
+    return stripCommission(updated);
   },
 
   async verify(id, adminUserId) {
@@ -303,7 +328,7 @@ export const supplierSettlementService = {
     });
     await notificationService.notifySupplierAdmins(updated.supplierId, {
       type: 'SUPPLIER_SETTLEMENT_PAID',
-      title: 'OtoRent đã thanh toán payout',
+      title: 'CarGoGo đã thanh toán payout',
       body: `Kỳ payout #${updated.id} đã thanh toán, mã ${paymentReference}.`,
       link: `/supplier/settlements/${updated.id}`,
     });

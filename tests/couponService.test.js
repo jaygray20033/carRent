@@ -155,6 +155,38 @@ describe('couponService.validate — discount math', () => {
     expect(res.discount).toBe(0);
   });
 
+  it('FREE_DRIVER on a WITH_DRIVER booking waives driverRate × days (from settings)', async () => {
+    const { settingsService } = await import('../src/services/settingsService.js');
+    const { driverRate } = await settingsService.getPricingConfig();
+
+    const withDriverDraft = await prisma.booking.create({
+      data: {
+        userId: user.id,
+        vehicleId: vehicle.id,
+        bookingCode: generateBookingCode(),
+        status: 'DRAFT',
+        rentalType: 'WITH_DRIVER',
+        pickupAt: dayjs().add(1, 'day').second(0).millisecond(0).toDate(),
+        returnAt: dayjs().add(3, 'day').second(0).millisecond(0).toDate(),
+        pickupPoint: 'HQ',
+        dropoffPoint: 'HQ',
+        pricePerDay: PRICE_PER_DAY,
+        totalDays: 2,
+        insuranceFee: 0,
+        subtotal: SUBTOTAL,
+        couponDiscount: 0,
+        totalAmount: SUBTOTAL,
+      },
+    });
+
+    const c = await trackedCoupon({ type: 'FREE_DRIVER', value: 0 });
+    const res = await couponService.validate(c.code, withDriverDraft.id, user.id);
+    // Discount must equal exactly the driver fee the breakdown charges.
+    expect(res.discount).toBe(Math.round(driverRate * 2));
+
+    await prisma.booking.delete({ where: { id: withDriverDraft.id } }).catch(() => {});
+  });
+
   it('accepts a lower-case code (normalised to upper-case)', async () => {
     const c = await trackedCoupon({ type: 'FIXED', value: 50_000 });
     const res = await couponService.validate(c.code.toLowerCase(), draft.id, user.id);

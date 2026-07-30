@@ -100,7 +100,12 @@ afterAll(async () => {
   await prisma.payment.deleteMany({ where: { bookingId: booking.id } }).catch(() => {});
   await prisma.bookingHistory.deleteMany({ where: { bookingId: booking.id } }).catch(() => {});
   await prisma.booking.delete({ where: { id: booking.id } }).catch(() => {});
-  await prisma.vehicle.delete({ where: { id: vehicle.id } }).catch(() => {});
+  await prisma.vehicle
+    .delete({ where: { id: vehicle.id } })
+    .catch((e) => console.error('[vnpayIpn.test cleanup] vehicle delete failed:', e.message));
+  await prisma.brand
+    .delete({ where: { slug: `vnp-brand-${stamp}` } })
+    .catch((e) => console.error('[vnpayIpn.test cleanup] brand delete failed:', e.message));
   await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
   await prisma.$disconnect();
 });

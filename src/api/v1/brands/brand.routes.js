@@ -24,8 +24,9 @@ router.get(
         _count: { select: { vehicles: true } },
       },
     });
-    // Cache 1h
-    res.set('Cache-Control', 'public, max-age=3600');
+    // Revalidate every request (brands change on admin edits / test cleanup);
+    // paired with Express's ETag so unchanged lists still return a cheap 304.
+    res.set('Cache-Control', 'no-cache');
     return success(res, { brands });
   })
 );

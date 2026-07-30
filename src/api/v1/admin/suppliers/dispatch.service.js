@@ -1,5 +1,5 @@
 // Marketplace Phase B — dispatch / recall / release-driver-info.
-// OtoRent Admin routes a corporate booking to a Supplier (white-label) and
+// CarGoGo Admin routes a corporate booking to a Supplier (white-label) and
 // later relays the assigned driver info back to the company.
 import prisma from '../../../../config/db.js';
 import {
@@ -89,7 +89,7 @@ export const dispatchService = {
       );
     }
 
-    // Self-fulfill path: OtoRent keeps the trip, no supplier involved.
+    // Self-fulfill path: CarGoGo keeps the trip, no supplier involved.
     // Only allowed from APPROVED with no current supplier.
     if (supplierId == null) {
       if (booking.status !== 'APPROVED' || booking.supplierId) {
@@ -189,7 +189,7 @@ export const dispatchService = {
       await notificationService.notifySupplierAdmins(prevSupplierId, {
         type: 'SUPPLIER_BOOKING_RECALLED',
         title: 'Chuyến đã chuyển sang nhà cung cấp khác',
-        body: `Chuyến #${updated.id} đã được OtoRent điều phối lại.`,
+        body: `Chuyến #${updated.id} đã được CarGoGo điều phối lại.`,
         link: `/supplier/bookings`,
       });
     }
@@ -259,7 +259,7 @@ export const dispatchService = {
       title: 'Chuyến đã bị thu hồi',
       body: reason
         ? `Chuyến #${updated.id} bị thu hồi: ${reason}`
-        : `Chuyến #${updated.id} đã bị OtoRent thu hồi.`,
+        : `Chuyến #${updated.id} đã bị CarGoGo thu hồi.`,
       link: `/supplier/bookings`,
     });
 
@@ -352,7 +352,7 @@ export const dispatchService = {
         type: 'CORPORATE_DRIVER_INFO',
         title: 'Đã có thông tin tài xế',
         body: `Chuyến #${updated.id}: tài xế ${fullName} (${phone}).`,
-        link: `/corporate/bookings/${updated.id}`,
+        link: `/enterprise/schedule`,
       });
     }
     const admins = await prisma.corporateEmployee.findMany({
@@ -373,7 +373,7 @@ export const dispatchService = {
             type: 'CORPORATE_DRIVER_INFO',
             title: 'Đã có thông tin tài xế',
             body: `Chuyến #${updated.id}: tài xế ${fullName} (${phone}).`,
-            link: `/corporate/bookings/${updated.id}`,
+            link: `/enterprise/schedule`,
           })
         )
     );
@@ -477,7 +477,7 @@ export const dispatchService = {
         actualKm: booking.actualKm,
         supplierVehicleNote: booking.supplierVehicleNote,
       },
-      // OtoRent-internal: corporate identity is on the LDX for OtoRent's own records,
+      // CarGoGo-internal: corporate identity is on the LDX for CarGoGo's own records,
       // not exposed to the supplier portal.
       corporate: booking.corporate
         ? { id: booking.corporate.id, name: booking.corporate.name, taxCode: booking.corporate.taxCode }

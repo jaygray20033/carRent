@@ -1,10 +1,15 @@
-// prisma/seed.js — OtoRent seed data (MySQL)
+// prisma/seed.js — CarGoGo seed data (MySQL)
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
 
 dotenv.config();
 const prisma = new PrismaClient();
+
+// Static /uploads assets are served by the API, so brand logos need an absolute
+// URL (same convention as storage.js) — a relative "/uploads/.." would resolve
+// against the FE origin (:3000) and 404.
+const APP_URL = (process.env.APP_URL || 'http://localhost:4000').replace(/\/$/, '');
 
 const slugify = (s) =>
   s
@@ -14,6 +19,14 @@ const slugify = (s) =>
     .replace(/đ/g, 'd')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
+
+// The real ADMIN account is the only credential that must never ship with a
+// public default. It's read from env so prod can pass a strong password via
+// SEED_ADMIN_PASSWORD; dev falls back to the well-known demo password. Phone /
+// email are overridable too so prod isn't forced onto the demo identity.
+const ADMIN_PHONE = process.env.SEED_ADMIN_PHONE || '0900000001';
+const ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || 'admin@CarGoGo.vn';
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || 'Admin@123';
 
 async function main() {
   console.log('🌱 Seeding database (MySQL)...');
@@ -38,15 +51,17 @@ async function main() {
 
   // 2) Users
   const saltRounds = 12;
-  const adminHash = await bcrypt.hash('Admin@123', saltRounds);
+  const adminHash = await bcrypt.hash(ADMIN_PASSWORD, saltRounds);
   await prisma.user.upsert({
-    where: { phone: '0900000001' },
-    update: {},
+    where: { phone: ADMIN_PHONE },
+    // Re-seeding prod must roll the password/email forward to the env values,
+    // otherwise a stale demo password could linger on an existing admin row.
+    update: { passwordHash: adminHash, email: ADMIN_EMAIL, status: 'ACTIVE' },
     create: {
       roleId: adminRole.id,
       fullName: 'System Admin',
-      phone: '0900000001',
-      email: 'admin@otorent.vn',
+      phone: ADMIN_PHONE,
+      email: ADMIN_EMAIL,
       passwordHash: adminHash,
       status: 'ACTIVE',
       emailVerifiedAt: new Date(),
@@ -96,73 +111,77 @@ async function main() {
     {
       name: 'BMW',
       slug: 'bmw',
-      logoUrl: 'https://www.carlogos.org/car-logos/bmw-logo-2020-grey.png',
+      logoUrl: `${APP_URL}/uploads/brands/bmw.png`,
       country: 'Germany',
     },
     {
       name: 'Mercedes',
       slug: 'mercedes',
-      logoUrl: 'https://www.carlogos.org/car-logos/mercedes-benz-logo-2011.png',
+      logoUrl: `${APP_URL}/uploads/brands/mercedes.png`,
       country: 'Germany',
     },
     {
       name: 'Lexus',
       slug: 'lexus',
-      logoUrl: 'https://www.carlogos.org/car-logos/lexus-logo-2013.png',
+      logoUrl: `${APP_URL}/uploads/brands/lexus.png`,
       country: 'Japan',
     },
     {
       name: 'Toyota',
       slug: 'toyota',
-      logoUrl: 'https://www.carlogos.org/car-logos/toyota-logo-2020-europe.png',
+      logoUrl: `${APP_URL}/uploads/brands/toyota.svg`,
       country: 'Japan',
     },
     {
       name: 'Hyundai',
       slug: 'hyundai',
-      logoUrl: 'https://www.carlogos.org/car-logos/hyundai-logo-2011.png',
+      logoUrl: `${APP_URL}/uploads/brands/hyundai.png`,
       country: 'South Korea',
     },
     {
       name: 'Peugeot',
       slug: 'peugeot',
-      logoUrl: 'https://www.carlogos.org/car-logos/peugeot-logo-2010.png',
+      logoUrl: `${APP_URL}/uploads/brands/peugeot.png`,
       country: 'France',
     },
     {
       name: 'Kia',
       slug: 'kia',
-      logoUrl: 'https://www.carlogos.org/car-logos/kia-logo-2021.png',
+      logoUrl: `${APP_URL}/uploads/brands/kia.png`,
       country: 'South Korea',
     },
     {
       name: 'Porsche',
       slug: 'porsche',
-      logoUrl: 'https://www.carlogos.org/car-logos/porsche-logo-2014.png',
+      logoUrl: `${APP_URL}/uploads/brands/porsche.png`,
       country: 'Germany',
     },
     {
       name: 'Audi',
       slug: 'audi',
-      logoUrl: 'https://www.carlogos.org/car-logos/audi-logo-2016.png',
+      logoUrl: `${APP_URL}/uploads/brands/audi.png`,
       country: 'Germany',
     },
     {
       name: 'Ford',
       slug: 'ford',
-      logoUrl: 'https://www.carlogos.org/car-logos/ford-logo-2017.png',
+      logoUrl: `${APP_URL}/uploads/brands/ford.png`,
       country: 'USA',
     },
   ];
   for (const b of brands) {
-    await prisma.brand.upsert({ where: { slug: b.slug }, update: {}, create: b });
+    await prisma.brand.upsert({
+      where: { slug: b.slug },
+      update: { logoUrl: b.logoUrl, country: b.country },
+      create: b,
+    });
   }
   console.log('  ✓ Brands');
 
   // 5) Stations
   const stations = [
     {
-      name: 'OtoRent HQ - Quận 2',
+      name: 'CarGoGo HQ - Quận 2',
       type: 'HQ',
       city: 'TP. Hồ Chí Minh',
       district: 'Quận 2',
@@ -667,26 +686,26 @@ async function main() {
       grp: 'contact',
       label: 'Giờ làm việc',
     },
-    { key: 'site_name', value: 'OtoRent', grp: 'general', label: 'Tên website' },
+    { key: 'site_name', value: 'CarGoGo', grp: 'general', label: 'Tên website' },
     {
       key: 'site_facebook',
-      value: 'https://facebook.com/otorent.vn',
+      value: 'https://facebook.com/CarGoGo.vn',
       grp: 'social',
       label: 'Facebook',
     },
     {
       key: 'site_instagram',
-      value: 'https://instagram.com/otorent.vn',
+      value: 'https://instagram.com/CarGoGo.vn',
       grp: 'social',
       label: 'Instagram',
     },
     {
       key: 'site_linkedin',
-      value: 'https://linkedin.com/company/otorent',
+      value: 'https://linkedin.com/company/CarGoGo',
       grp: 'social',
       label: 'LinkedIn',
     },
-    { key: 'site_twitter', value: 'https://twitter.com/otorent', grp: 'social', label: 'Twitter' },
+    { key: 'site_twitter', value: 'https://twitter.com/CarGoGo', grp: 'social', label: 'Twitter' },
     // Pricing config (Day 35 / UC-60) — read by pricing code instead of hardcoding.
     { key: 'tax_rate', value: '10', grp: 'pricing', label: 'Thuế suất (%)' },
     { key: 'deposit_default', value: '5000000', grp: 'pricing', label: 'Đặt cọc mặc định (VND)' },
@@ -711,7 +730,7 @@ async function main() {
   // 8b) Rescue / roadside stations (Day 37 / UC-31)
   const rescueStations = [
     {
-      name: 'Trạm cứu hộ OtoRent Quận 1',
+      name: 'Trạm cứu hộ CarGoGo Quận 1',
       city: 'Hồ Chí Minh',
       district: 'Quận 1',
       address: '12 Lê Duẩn, Bến Nghé, Quận 1, TP.HCM',
@@ -721,7 +740,7 @@ async function main() {
       hours: '24/7',
     },
     {
-      name: 'Trạm cứu hộ OtoRent TP. Thủ Đức',
+      name: 'Trạm cứu hộ CarGoGo TP. Thủ Đức',
       city: 'Hồ Chí Minh',
       district: 'TP. Thủ Đức',
       address: '52 Võ Văn Ngân, Linh Chiểu, TP. Thủ Đức, TP.HCM',
@@ -731,7 +750,7 @@ async function main() {
       hours: '24/7',
     },
     {
-      name: 'Trạm cứu hộ OtoRent Tân Bình',
+      name: 'Trạm cứu hộ CarGoGo Tân Bình',
       city: 'Hồ Chí Minh',
       district: 'Tân Bình',
       address: '203 Hoàng Văn Thụ, Phường 8, Tân Bình, TP.HCM',
@@ -741,7 +760,7 @@ async function main() {
       hours: '06:00 - 22:00',
     },
     {
-      name: 'Trạm cứu hộ OtoRent Hà Nội - Cầu Giấy',
+      name: 'Trạm cứu hộ CarGoGo Hà Nội - Cầu Giấy',
       city: 'Hà Nội',
       district: 'Cầu Giấy',
       address: '144 Xuân Thủy, Dịch Vọng Hậu, Cầu Giấy, Hà Nội',
@@ -751,7 +770,7 @@ async function main() {
       hours: '24/7',
     },
     {
-      name: 'Trạm cứu hộ OtoRent Đà Nẵng',
+      name: 'Trạm cứu hộ CarGoGo Đà Nẵng',
       city: 'Đà Nẵng',
       district: 'Hải Châu',
       address: '35 Nguyễn Văn Linh, Hải Châu, Đà Nẵng',
@@ -768,7 +787,7 @@ async function main() {
   console.log('  ✓ Rescue stations');
 
   // 9) Demo blog: categories, tags, posts (UC-21/22/25/26/27)
-  const admin = await prisma.user.findUnique({ where: { phone: '0900000001' } });
+  const admin = await prisma.user.findUnique({ where: { phone: ADMIN_PHONE } });
 
   const postCategories = [
     { name: 'Kinh nghiệm thuê xe', slug: 'kinh-nghiem-thue-xe' },
@@ -795,7 +814,7 @@ async function main() {
     {
       title: 'Top 5 Xe Sang Cho Thuê Hot Nhất 2024',
       slug: 'top-5-xe-sang-cho-thue-2024',
-      excerpt: 'Khám phá những mẫu xe sang được thuê nhiều nhất tại OtoRent trong năm 2024.',
+      excerpt: 'Khám phá những mẫu xe sang được thuê nhiều nhất tại CarGoGo trong năm 2024.',
       content:
         'Năm 2024 chứng kiến nhu cầu thuê xe sang tăng mạnh. Dẫn đầu là Mercedes C300 với thiết kế AMG thể thao, tiếp đến là BMW X5, Lexus ES 250 và Porsche Cayenne. Bài viết phân tích chi tiết giá thuê, tiện nghi và lý do mỗi mẫu xe được khách hàng ưa chuộng.',
       thumbnailUrl:
@@ -839,7 +858,7 @@ async function main() {
       slug: 'uu-dai-mua-he-giam-20',
       excerpt: 'Chương trình khuyến mãi mùa hè 2026 với nhiều mã giảm giá hấp dẫn.',
       content:
-        'Chào hè 2026, OtoRent tung ra loạt mã ưu đãi: SUMMER10 giảm 10%, VIP20 giảm tới 20% cho đơn từ 5 triệu. Bài viết hướng dẫn cách áp dụng mã, điều kiện sử dụng và mẹo kết hợp ưu đãi để tiết kiệm tối đa cho chuyến đi của bạn.',
+        'Chào hè 2026, CarGoGo tung ra loạt mã ưu đãi: SUMMER10 giảm 10%, VIP20 giảm tới 20% cho đơn từ 5 triệu. Bài viết hướng dẫn cách áp dụng mã, điều kiện sử dụng và mẹo kết hợp ưu đãi để tiết kiệm tối đa cho chuyến đi của bạn.',
       thumbnailUrl:
         'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=600&h=400&fit=crop',
       status: 'PUBLISHED',

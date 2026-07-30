@@ -128,6 +128,7 @@ describe('Auth — register guards', () => {
     const res = await request(app).post(`${BASE}/auth/register`).send({
       fullName: 'Dup Phone',
       phone: activeUser.phone, // already exists
+      email: emailOf(20), // fresh email → the phone-dup branch is what fires (email is now required)
       password: PASSWORD,
     });
     expect(res.status).toBe(409);
@@ -153,6 +154,7 @@ describe('Auth — register guards', () => {
     const res = await request(app).post(`${BASE}/auth/register`).send({
       fullName: 'Bad Phone',
       phone: '12',
+      email: emailOf(21),
       password: PASSWORD,
     });
     expect(res.status).toBe(422);
@@ -164,6 +166,7 @@ describe('Auth — register guards', () => {
     const res = await request(app).post(`${BASE}/auth/register`).send({
       fullName: 'Weak Pass',
       phone: phoneOf(4),
+      email: emailOf(4),
       password: 'onlyletters',
     });
     expect(res.status).toBe(422);
@@ -255,26 +258,28 @@ describe('Auth — verify-otp guards', () => {
       .post(`${BASE}/auth/register`)
       .send({ fullName: 'OTP Flow', phone, email, password: PASSWORD });
     expect(reg.status).toBe(201);
-    const realCode = lastOtpFor(phone, 'REGISTER');
+    // OTP is stored + sent keyed by email now, so verify with the email identifier.
+    const realCode = lastOtpFor(email, 'REGISTER');
     expect(realCode).toMatch(/^\d{6}$/);
 
     const wrong = realCode === '111111' ? '222222' : '111111';
     const bad = await request(app)
       .post(`${BASE}/auth/verify-otp`)
-      .send({ identifier: phone, code: wrong, purpose: 'REGISTER' });
+      .send({ identifier: email, code: wrong, purpose: 'REGISTER' });
     expect(bad.status).toBe(422);
     expect(bad.body.code).toBe('OTP_INVALID');
     expect(bad.body.errors.attemptsLeft).toBe(4);
 
     const good = await request(app)
       .post(`${BASE}/auth/verify-otp`)
-      .send({ identifier: phone, code: realCode, purpose: 'REGISTER' });
+      .send({ identifier: email, code: realCode, purpose: 'REGISTER' });
     expect(good.status).toBe(200);
     expect(good.body.data.verified).toBe(true);
 
     const dbUser = await prisma.user.findUnique({ where: { phone } });
     expect(dbUser.status).toBe('ACTIVE');
-    expect(dbUser.phoneVerifiedAt).not.toBeNull();
+    // Verifying via the email identifier stamps emailVerifiedAt (auth.service.js).
+    expect(dbUser.emailVerifiedAt).not.toBeNull();
   });
 
   it('locks the identifier after 5 wrong OTP codes (OTP_LOCKED)', async () => {
@@ -286,28 +291,29 @@ describe('Auth — verify-otp guards', () => {
       .post(`${BASE}/auth/register`)
       .send({ fullName: 'OTP Lock', phone, email, password: PASSWORD });
     expect(reg.status).toBe(201);
-    const realCode = lastOtpFor(phone, 'REGISTER');
+    // OTP is keyed by email now — verify + lock the email identifier.
+    const realCode = lastOtpFor(email, 'REGISTER');
     const wrong = realCode === '000000' ? '999999' : '000000';
 
     // First 4 wrong attempts → 422 with a decreasing attemptsLeft.
     for (let i = 0; i < 4; i += 1) {
       const r = await request(app)
         .post(`${BASE}/auth/verify-otp`)
-        .send({ identifier: phone, code: wrong, purpose: 'REGISTER' });
+        .send({ identifier: email, code: wrong, purpose: 'REGISTER' });
       expect(r.status).toBe(422);
       expect(r.body.errors.attemptsLeft).toBe(4 - i);
     }
     // 5th wrong attempt trips the lock (ForbiddenError → code 'FORBIDDEN').
     const fifth = await request(app)
       .post(`${BASE}/auth/verify-otp`)
-      .send({ identifier: phone, code: wrong, purpose: 'REGISTER' });
+      .send({ identifier: email, code: wrong, purpose: 'REGISTER' });
     expect(fifth.status).toBe(403);
     expect(fifth.body.message).toMatch(/too many wrong otp/i);
 
     // While locked, even the correct code is rejected with 403.
     const afterLock = await request(app)
       .post(`${BASE}/auth/verify-otp`)
-      .send({ identifier: phone, code: realCode, purpose: 'REGISTER' });
+      .send({ identifier: email, code: realCode, purpose: 'REGISTER' });
     expect(afterLock.status).toBe(403);
     expect(afterLock.body.message).toMatch(/locked/i);
   });

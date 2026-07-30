@@ -118,11 +118,19 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await prisma.review.deleteMany({ where: { userId: user.id } }).catch(() => {});
+  await prisma.payment.deleteMany({ where: { bookingId: completedBooking.id } }).catch(() => {});
+  await prisma.bookingHistory.deleteMany({ where: { bookingId: completedBooking.id } }).catch(() => {});
   await prisma.booking.deleteMany({ where: { userId: user.id } }).catch(() => {});
   await prisma.agentApplication.deleteMany({ where: { userId: user.id } }).catch(() => {});
   await prisma.contactMessage.deleteMany({ where: { email: { contains: stamp } } }).catch(() => {});
-  await prisma.vehicle.deleteMany({ where: { id: vehicle.id } }).catch(() => {});
-  await prisma.brand.deleteMany({ where: { id: brand.id } }).catch(() => {});
+  await prisma.vehicle
+    .deleteMany({ where: { id: vehicle.id } })
+    .catch((e) => console.error('[coverageBoost.test cleanup] vehicle delete failed:', e.message));
+  // Vehicle models reference brandId → must be deleted BEFORE the brand.
+  await prisma.vehicleModel.deleteMany({ where: { slug: { contains: stamp } } }).catch(() => {});
+  await prisma.brand
+    .deleteMany({ where: { id: brand.id } })
+    .catch((e) => console.error('[coverageBoost.test cleanup] brand delete failed:', e.message));
   if (category?.slug?.includes(stamp)) {
     await prisma.category.delete({ where: { id: category.id } }).catch(() => {});
   }
@@ -130,7 +138,6 @@ afterAll(async () => {
   await prisma.tag.deleteMany({ where: { slug: { contains: stamp } } }).catch(() => {});
   await prisma.rescueStation.deleteMany({ where: { name: { contains: stamp } } }).catch(() => {});
   await prisma.station.deleteMany({ where: { name: { contains: stamp } } }).catch(() => {});
-  await prisma.vehicleModel.deleteMany({ where: { slug: { contains: stamp } } }).catch(() => {});
   await prisma.user.deleteMany({ where: { id: { in: [user.id, admin.id] } } }).catch(() => {});
   await prisma.$disconnect();
 });

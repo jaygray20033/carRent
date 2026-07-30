@@ -18,4 +18,21 @@ export function inviteExpiresAt(from = new Date()) {
   return new Date(from.getTime() + INVITE_TTL_MS);
 }
 
-export default { generateInviteToken, isInviteExpired, inviteExpiresAt };
+/**
+ * Evaluate a shareable multi-use join link's usability.
+ * Returns { valid, reason } — reason is one of NOT_FOUND | REVOKED | EXPIRED | EXHAUSTED.
+ * maxUses null = unlimited; expiresAt null = never expires.
+ */
+export function inviteLinkStatus(link, now = new Date()) {
+  if (!link) return { valid: false, reason: 'NOT_FOUND' };
+  if (!link.isActive) return { valid: false, reason: 'REVOKED' };
+  if (link.expiresAt && new Date(link.expiresAt).getTime() <= now.getTime()) {
+    return { valid: false, reason: 'EXPIRED' };
+  }
+  if (link.maxUses != null && link.usedCount >= link.maxUses) {
+    return { valid: false, reason: 'EXHAUSTED' };
+  }
+  return { valid: true };
+}
+
+export default { generateInviteToken, isInviteExpired, inviteExpiresAt, inviteLinkStatus };

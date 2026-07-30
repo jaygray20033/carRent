@@ -77,6 +77,33 @@ export const supplierPortalController = {
     return success(res, { summary });
   }),
 
+  // ── Trip expenses (driver logs tolls, parking, overtime…) ──────────
+  listExpenses: asyncHandler(async (req, res) => {
+    const result = await supplierPortalService.listExpenses(
+      req.supplierMembership,
+      req.params.id
+    );
+    return success(res, result);
+  }),
+
+  addExpense: asyncHandler(async (req, res) => {
+    const result = await supplierPortalService.addExpense(
+      req.supplierMembership,
+      req.params.id,
+      req.body
+    );
+    return created(res, result, 'Đã ghi chi phí');
+  }),
+
+  deleteExpense: asyncHandler(async (req, res) => {
+    const result = await supplierPortalService.deleteExpense(
+      req.supplierMembership,
+      req.params.id,
+      req.params.expenseId
+    );
+    return success(res, result, 'Đã xoá chi phí');
+  }),
+
   // Members (Supplier Admin manages own drivers)
   listMembers: asyncHandler(async (req, res) => {
     const result = await adminSupplierService.listMembers(
@@ -105,6 +132,26 @@ export const supplierPortalController = {
       req.body
     );
     return success(res, { member }, 'Đã cập nhật thành viên');
+  }),
+
+  resendMemberInvite: asyncHandler(async (req, res) => {
+    const result = await adminSupplierService.resendInvite(
+      req.supplierMembership.supplierId,
+      req.params.memberId
+    );
+    return success(
+      res,
+      { member: result.member, inviteToken: result.inviteToken },
+      'Đã gửi lại lời mời'
+    );
+  }),
+
+  removeMember: asyncHandler(async (req, res) => {
+    const result = await adminSupplierService.removeMember(
+      req.supplierMembership.supplierId,
+      req.params.memberId
+    );
+    return success(res, result, 'Đã thu hồi thành viên');
   }),
 
   // ── Payout settlements (Supplier submits documents) ──────────────
@@ -142,6 +189,41 @@ export const supplierPortalController = {
   acceptInvite: asyncHandler(async (req, res) => {
     const member = await adminSupplierService.acceptInvite(req.body, req.user.id);
     return success(res, { member }, 'Đã tham gia nhà cung cấp');
+  }),
+
+  // ── Shareable multi-use join link ──────────────────────────────────
+  createInviteLink: asyncHandler(async (req, res) => {
+    const link = await adminSupplierService.createInviteLink(
+      req.supplierMembership.supplierId,
+      req.body,
+      req.user.id
+    );
+    return created(res, { link }, 'Đã tạo link mời');
+  }),
+
+  listInviteLinks: asyncHandler(async (req, res) => {
+    const links = await adminSupplierService.listInviteLinks(
+      req.supplierMembership.supplierId
+    );
+    return success(res, { links });
+  }),
+
+  revokeInviteLink: asyncHandler(async (req, res) => {
+    const result = await adminSupplierService.revokeInviteLink(
+      req.supplierMembership.supplierId,
+      req.params.linkId
+    );
+    return success(res, result, 'Đã thu hồi link mời');
+  }),
+
+  previewInviteLink: asyncHandler(async (req, res) => {
+    const result = await adminSupplierService.previewInviteLink(req.params.token);
+    return success(res, result);
+  }),
+
+  joinViaLink: asyncHandler(async (req, res) => {
+    const result = await adminSupplierService.joinViaLink(req.body.token, req.user.id);
+    return success(res, result, 'Đã tham gia nhà cung cấp');
   }),
 };
 

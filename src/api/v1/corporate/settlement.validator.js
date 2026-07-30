@@ -20,6 +20,16 @@ export const listSettlementsQuerySchema = z.object({
   size: z.coerce.number().int().positive().max(100).optional(),
 });
 
+// Global payment-confirmation queue (OtoRent staff). PAYMENT_DECLARED is the
+// default the tab filters on, so it must be an allowed value here.
+export const settlementQueueQuerySchema = z.object({
+  status: z
+    .enum(['DRAFT', 'SENT', 'CONFIRMED', 'PAYMENT_DECLARED', 'PAID', 'DISPUTED'])
+    .optional(),
+  page: z.coerce.number().int().positive().optional(),
+  size: z.coerce.number().int().positive().max(100).optional(),
+});
+
 export const disputeSettlementSchema = z.object({
   note: z.string().trim().min(1, 'Vui lòng nhập lý do dispute').max(2000),
 });
@@ -59,6 +69,7 @@ export default {
   settlementIdParamSchema,
   corporateIdParamSchema,
   listSettlementsQuerySchema,
+  settlementQueueQuerySchema,
   disputeSettlementSchema,
   markPaidSchema,
   dashboardQuerySchema,

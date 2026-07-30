@@ -48,6 +48,24 @@ router.get('/vnpay/return', asyncHandler(paymentController.vnpayReturn));
 router.get('/vnpay/ipn', asyncHandler(paymentController.vnpayIpn));
 router.post('/vnpay/ipn', asyncHandler(paymentController.vnpayIpn));
 
+// [DISABLED — manual bank-transfer flow] The enterprise settlement payment is now
+// a manual "báo đã thanh toán → upload ảnh → admin xác nhận" flow (see
+// corporate settlement declare/upload-proof endpoints), so the SePay auto-reconcile
+// webhook is no longer wired. Kept commented for reference / possible rollback.
+// /**
+//  * @swagger
+//  * /payments/sepay/webhook:
+//  *   post:
+//  *     tags: [Payments]
+//  *     summary: SePay bank-transfer webhook — auto-reconciles a transfer to a settlement (Apikey auth, no user session)
+//  *     responses:
+//  *       200: { description: Acknowledged (matched or not) }
+//  *       401: { description: Bad/missing Apikey }
+//  */
+// // SePay bank-transfer callback — NO user auth (verified by Apikey header inside
+// // the handler). Must precede the authenticate-guarded /me and /:id routes.
+// router.post('/sepay/webhook', asyncHandler(paymentController.sepayWebhook));
+
 /**
  * @swagger
  * /payments/me:

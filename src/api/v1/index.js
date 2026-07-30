@@ -30,7 +30,7 @@ const router = Router();
 
 router.get('/', (_req, res) =>
   res.json({
-    name: 'OtoRent API v1',
+    name: 'CarGoGo API v1',
     status: 'running',
     endpoints: [
       '/auth',

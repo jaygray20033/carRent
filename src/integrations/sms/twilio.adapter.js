@@ -13,6 +13,26 @@ import logger from '../../config/logger.js';
 let twilioClient;
 
 /**
+ * Normalise a Vietnamese phone number to E.164, which is what Twilio requires.
+ * DB numbers are stored in local form ("0901234567"); Twilio rejects those and
+ * only accepts "+84901234567". Already-E.164 input (starting "+") is passed
+ * through untouched so international numbers still work.
+ *
+ *   0901234567  -> +84901234567
+ *   84901234567 -> +84901234567
+ *   +84901234567 (unchanged)
+ */
+function toE164(raw) {
+  if (!raw) return raw;
+  const trimmed = String(raw).trim();
+  if (trimmed.startsWith('+')) return trimmed;
+  const digits = trimmed.replace(/\D/g, '');
+  if (digits.startsWith('84')) return `+${digits}`;
+  if (digits.startsWith('0')) return `+84${digits.slice(1)}`;
+  return `+${digits}`;
+}
+
+/**
  * Lazily build the Twilio client. Returns null when the SDK isn't installed or
  * creds are missing — callers then fall back to mock mode.
  */
@@ -57,8 +77,9 @@ export async function sendSms({ to, message }) {
     return { sent: false, mock: true };
   }
 
-  const res = await client.messages.create({ to, from: env.TWILIO_FROM, body: message });
-  logger.info(`📱 SMS sent to ${to} sid=${res.sid}`);
+  const recipient = toE164(to);
+  const res = await client.messages.create({ to: recipient, from: env.TWILIO_FROM, body: message });
+  logger.info(`📱 SMS sent to ${recipient} sid=${res.sid}`);
   return { sent: true, sid: res.sid };
 }
 

@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────
-//  OtoRent — Prisma Schema
+//  CarGoGo — Prisma Schema
 //  Provider: MySQL (Docker)
 // ─────────────────────────────────────────────────────────────────────
 
@@ -45,21 +45,21 @@ model User {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
-  role               Role                @relation(fields: [roleId], references: [id])
-  bookings           Booking[]           @relation("bookingRenter")
-  assignedBookings   Booking[]           @relation("bookingAssignee")
-  wallet             Wallet?
-  walletTransactions WalletTransaction[]
-  payments           Payment[]
-  posts              Post[]
-  refreshTokens      RefreshToken[]
-  comments           Comment[]
-  notifications      Notification[]
-  addresses          Address[]
-  agentApplications  AgentApplication[]
-  sosRequests        SosRequest[]
-  corporateEmployee  CorporateEmployee?
-  supplierMember     SupplierMember?
+  role                 Role                  @relation(fields: [roleId], references: [id])
+  bookings             Booking[]             @relation("bookingRenter")
+  assignedBookings     Booking[]             @relation("bookingAssignee")
+  wallet               Wallet?
+  walletTransactions   WalletTransaction[]
+  payments             Payment[]
+  posts                Post[]
+  refreshTokens        RefreshToken[]
+  comments             Comment[]
+  notifications        Notification[]
+  addresses            Address[]
+  agentApplications    AgentApplication[]
+  sosRequests          SosRequest[]
+  corporateEmployee    CorporateEmployee?
+  supplierMember       SupplierMember?
   supplierApplications SupplierApplication[]
 
   @@map("users")
@@ -275,7 +275,11 @@ model Booking {
   totalDays        Int       @map("total_days")
   pricePerDay      Float     @map("price_per_day")
   subtotal         Float     @default(0)
+  driverFee        Float     @default(0) @map("driver_fee")
   insuranceFee     Float     @default(0) @map("insurance_fee")
+  dropoffPenalty   Float     @default(0) @map("dropoff_penalty")
+  taxAmount        Float     @default(0) @map("tax_amount")
+  depositAmount    Float     @default(0) @map("deposit_amount")
   couponDiscount   Float     @default(0) @map("coupon_discount")
   totalAmount      Float     @map("total_amount")
   status           String    @default("DRAFT")
@@ -663,6 +667,9 @@ model CorporateClient {
   // JSON: { "4_5_seat": { half_day_0_100km, ... }, "7_seat": {...}, "16_seat": {...} }
   priceConfig             String?   @map("price_config") @db.Text
   isActive                Boolean   @default(true) @map("is_active")
+  // When true, employee bookings skip corporate-admin approval (PENDING→APPROVED
+  // on create). Admin toggles this from the corporate portal settings.
+  autoApproveBookings     Boolean   @default(false) @map("auto_approve_bookings")
   // ENT-Day 3 — true when confirmed CRITICAL SLA violations ≥ 2 in contract term
   contractTerminationRisk Boolean   @default(false) @map("contract_termination_risk")
   createdAt               DateTime  @default(now()) @map("created_at")
@@ -674,6 +681,7 @@ model CorporateClient {
   vasPricing  CorporateVASPrice[]
   slas        ContractSLA[]
   amendments  ContractAmendment[]
+  inviteLinks CorporateInviteLink[]
 
   @@index([isActive])
   @@map("corporate_clients")
@@ -706,6 +714,30 @@ model CorporateEmployee {
   @@map("corporate_employees")
 }
 
+// ─── B2B: Shareable multi-use join link (Slack-style) ────────────────
+// Distinct from CorporateEmployee.inviteToken (per-person, single-use). One
+// link is shared with many people; each accept creates an ACTIVE employee row
+// immediately. maxUses NULL = unlimited; expiresAt NULL = never expires.
+model CorporateInviteLink {
+  id             Int       @id @default(autoincrement())
+  corporateId    Int       @map("corporate_id")
+  token          String    @unique @db.VarChar(128)
+  defaultIsAdmin Boolean   @default(false) @map("default_is_admin")
+  maxUses        Int?      @map("max_uses")
+  usedCount      Int       @default(0) @map("used_count")
+  expiresAt      DateTime? @map("expires_at")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  corporate CorporateClient @relation(fields: [corporateId], references: [id], onDelete: Cascade)
+
+  @@index([corporateId])
+  @@index([token])
+  @@map("corporate_invite_links")
+}
+
 // ─── B2B: Corporate Bookings (UC-64+) ───────────────────────────────
 model CorporateBooking {
   id                        Int                    @id @default(autoincrement())
@@ -732,21 +764,24 @@ model CorporateBooking {
   confirmedByOtorent        Boolean                @default(false) @map("confirmed_by_otorent")
   settlementId              Int?                   @map("settlement_id")
   finalAmount               Float?                 @map("final_amount")
+  // DN chọn lúc xác nhận chuyến: PAY_NOW → tự tạo bảng kê lẻ khi CarGoGo chốt;
+  // ON_CREDIT → gom vào kỳ quyết toán tháng. null = chưa chọn (chuyến cũ).
+  paymentMode               CorporatePaymentMode?  @map("payment_mode")
   rejectReason              String?                @map("reject_reason") @db.Text
   // ── Marketplace dispatch (supplier fulfillment) ──────────────────
   supplierId                Int?                   @map("supplier_id")
   supplierMemberId          Int?                   @map("supplier_member_id") // tài xế (member) được gán
   dispatchedAt              DateTime?              @map("dispatched_at")
-  dispatchedBy              Int?                   @map("dispatched_by") // OtoRent admin userId
+  dispatchedBy              Int?                   @map("dispatched_by") // CarGoGo admin userId
   // Snapshot hoa hồng lúc dispatch — không đổi khi Supplier.commissionRate thay đổi sau
   commissionRate            Float?                 @map("commission_rate")
   commissionAmount          Float?                 @map("commission_amount") // tính khi settle = finalAmount × rate
   supplierVehicleNote       String?                @map("supplier_vehicle_note") @db.Text
-  // Driver info handoff (supplier → OtoRent → DN); DN chỉ thấy sau khi release.
+  // Driver info handoff (supplier → CarGoGo → DN); DN chỉ thấy sau khi release.
   driverInfoReleasedAt      DateTime?              @map("driver_info_released_at")
-  driverInfoReleasedBy      Int?                   @map("driver_info_released_by") // OtoRent admin userId
+  driverInfoReleasedBy      Int?                   @map("driver_info_released_by") // CarGoGo admin userId
   releasedDriverInfo        String?                @map("released_driver_info") @db.Text // JSON: { fullName, phone, vehicleNote?, licensePlate? }
-  // Payout chiều OtoRent → Supplier (mục 7.4) — kỳ payout gom booking đã settle.
+  // Payout chiều CarGoGo → Supplier (mục 7.4) — kỳ payout gom booking đã settle.
   supplierSettlementId      Int?                   @map("supplier_settlement_id")
   createdAt                 DateTime               @default(now()) @map("created_at")
   updatedAt                 DateTime               @updatedAt @map("updated_at")
@@ -782,6 +817,11 @@ enum CorporateBookingStatus {
   CANCELLED
 }
 
+enum CorporatePaymentMode {
+  PAY_NOW
+  ON_CREDIT
+}
+
 // ─── Marketplace: Suppliers (nhà cung xe) ───────────────────────────
 model Supplier {
   id                     Int       @id @default(autoincrement())
@@ -807,6 +847,7 @@ model Supplier {
   members     SupplierMember[]
   bookings    CorporateBooking[]
   settlements SupplierSettlement[]
+  inviteLinks SupplierInviteLink[]
 
   @@index([isActive])
   @@map("suppliers")
@@ -837,31 +878,55 @@ model SupplierMember {
   @@map("supplier_members")
 }
 
+// ─── Marketplace: Shareable multi-use join link (Slack-style) ────────
+// Distinct from SupplierMember.inviteToken (per-person, single-use). One link
+// is shared with many drivers; each accept creates an ACTIVE member row
+// immediately. maxUses NULL = unlimited; expiresAt NULL = never expires.
+model SupplierInviteLink {
+  id             Int       @id @default(autoincrement())
+  supplierId     Int       @map("supplier_id")
+  token          String    @unique @db.VarChar(128)
+  defaultIsAdmin Boolean   @default(false) @map("default_is_admin")
+  maxUses        Int?      @map("max_uses")
+  usedCount      Int       @default(0) @map("used_count")
+  expiresAt      DateTime? @map("expires_at")
+  isActive       Boolean   @default(true) @map("is_active")
+  createdBy      Int?      @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+
+  @@index([supplierId])
+  @@index([token])
+  @@map("supplier_invite_links")
+}
+
 // ─── Marketplace: Supplier payout settlements ─────────────────────────
 model SupplierSettlement {
-  id                       Int                      @id @default(autoincrement())
-  supplierId               Int                      @map("supplier_id")
-  periodStart              DateTime                 @map("period_start")
-  periodEnd                DateTime                 @map("period_end")
-  totalFinalAmount         Float                    @map("total_final_amount")
-  totalCommissionAmount    Float                    @map("total_commission_amount")
-  supplierPayout           Float                    @map("supplier_payout")
-  status                   SupplierSettlementStatus @default(PENDING_DOCUMENTS)
-  vatInvoiceRef            String?                  @map("vat_invoice_ref")
-  vatInvoiceUrl            String?                  @map("vat_invoice_url") @db.Text
-  statementUrl             String?                  @map("statement_url") @db.Text
-  dispatchRecordsUrl       String?                  @map("dispatch_records_url") @db.Text
-  supportingDocumentsUrl   String?                  @map("supporting_documents_url") @db.Text
-  rejectionReason          String?                  @map("rejection_reason") @db.Text
-  paymentReference         String?                  @map("payment_reference")
-  note                     String?                  @db.Text
-  submittedAt              DateTime?                @map("submitted_at")
-  verifiedAt               DateTime?                @map("verified_at")
-  verifiedBy               Int?                     @map("verified_by")
-  paidAt                   DateTime?                @map("paid_at")
-  paidBy                   Int?                     @map("paid_by")
-  createdAt                DateTime                 @default(now()) @map("created_at")
-  updatedAt                DateTime                 @updatedAt @map("updated_at")
+  id                     Int                      @id @default(autoincrement())
+  supplierId             Int                      @map("supplier_id")
+  periodStart            DateTime                 @map("period_start")
+  periodEnd              DateTime                 @map("period_end")
+  totalFinalAmount       Float                    @map("total_final_amount")
+  totalCommissionAmount  Float                    @map("total_commission_amount")
+  supplierPayout         Float                    @map("supplier_payout")
+  status                 SupplierSettlementStatus @default(PENDING_DOCUMENTS)
+  vatInvoiceRef          String?                  @map("vat_invoice_ref")
+  vatInvoiceUrl          String?                  @map("vat_invoice_url") @db.Text
+  statementUrl           String?                  @map("statement_url") @db.Text
+  dispatchRecordsUrl     String?                  @map("dispatch_records_url") @db.Text
+  supportingDocumentsUrl String?                  @map("supporting_documents_url") @db.Text
+  rejectionReason        String?                  @map("rejection_reason") @db.Text
+  paymentReference       String?                  @map("payment_reference")
+  note                   String?                  @db.Text
+  submittedAt            DateTime?                @map("submitted_at")
+  verifiedAt             DateTime?                @map("verified_at")
+  verifiedBy             Int?                     @map("verified_by")
+  paidAt                 DateTime?                @map("paid_at")
+  paidBy                 Int?                     @map("paid_by")
+  createdAt              DateTime                 @default(now()) @map("created_at")
+  updatedAt              DateTime                 @updatedAt @map("updated_at")
 
   supplier Supplier           @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   bookings CorporateBooking[]
@@ -956,6 +1021,17 @@ model CorporateSettlement {
   note            String?          @db.Text
   createdAt       DateTime         @default(now()) @map("created_at")
   confirmedAt     DateTime?        @map("confirmed_at")
+  paidAt          DateTime?        @map("paid_at")
+  paymentMethod   String?          @map("payment_method")
+  paymentTxnRef   String?          @unique @map("payment_txn_ref")
+
+  // Manual bank-transfer flow: the corporate admin declares "đã chuyển khoản"
+  // (PAYMENT_DECLARED) and optionally uploads a transfer-proof image. Declaring
+  // is what alerts OtoRent staff — the proof image is best-effort (may arrive
+  // later or not at all if the payer loses connectivity). Admin confirms receipt
+  // via mark-paid, so PAID stays the source of truth for "money received".
+  paymentDeclaredAt DateTime? @map("payment_declared_at")
+  paymentProofUrl   String?   @map("payment_proof_url")
 
   corporate CorporateClient    @relation(fields: [corporateId], references: [id], onDelete: Cascade)
   bookings  CorporateBooking[]
@@ -968,6 +1044,7 @@ enum SettlementStatus {
   DRAFT
   SENT
   CONFIRMED
+  PAYMENT_DECLARED
   PAID
   DISPUTED
 }
@@ -1060,7 +1137,7 @@ model SLAViolation {
   id                 Int               @id @default(autoincrement())
   corporateBookingId Int               @map("corporate_booking_id")
   slaId              Int               @map("sla_id")
-  reportedBy         String            @map("reported_by") // employee | corporate_admin | otorent_admin
+  reportedBy         String            @map("reported_by") // employee | corporate_admin | CarGoGo_admin
   reportedById       Int               @map("reported_by_id")
   description        String            @db.Text
   severity           ViolationSeverity @default(MINOR)

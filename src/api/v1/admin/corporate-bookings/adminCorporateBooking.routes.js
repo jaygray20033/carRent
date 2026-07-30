@@ -1,5 +1,5 @@
 // src/api/v1/admin/corporate-bookings/adminCorporateBooking.routes.js
-// B2B Day 7 UC-72 — OtoRent Admin B2B booking ops: list, assign-driver, start, confirm.
+// B2B Day 7 UC-72 — CarGoGo Admin B2B booking ops: list, assign-driver, start, confirm.
 import { Router } from 'express';
 import { authenticate } from '../../../../middlewares/auth.middleware.js';
 import { requireRole } from '../../../../middlewares/rbac.middleware.js';
@@ -48,6 +48,13 @@ router.put(
   '/:id/confirm-otorent',
   validate(bookingIdParamSchema, 'params'),
   corporateController.confirmOtorent
+);
+
+// Quick single-booking settlement — settle one CONFIRMED booking straight away.
+router.post(
+  '/:id/quick-settlement',
+  validate(bookingIdParamSchema, 'params'),
+  corporateController.createSettlementForBooking
 );
 
 // ENT-Day 2 — assign VAS provider → CONFIRMED

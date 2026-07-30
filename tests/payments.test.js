@@ -146,8 +146,12 @@ afterAll(async () => {
     .catch(() => {});
   await prisma.booking.deleteMany({ where: { id: { in: createdBookingIds } } }).catch(() => {});
   await prisma.wallet.deleteMany({ where: { userId: { in: userIds } } }).catch(() => {});
-  await prisma.vehicle.delete({ where: { id: vehicle.id } }).catch(() => {});
-  await prisma.brand.delete({ where: { id: brand.id } }).catch(() => {});
+  await prisma.vehicle
+    .delete({ where: { id: vehicle.id } })
+    .catch((e) => console.error('[payments.test cleanup] vehicle delete failed:', e.message));
+  await prisma.brand
+    .delete({ where: { id: brand.id } })
+    .catch((e) => console.error('[payments.test cleanup] brand delete failed:', e.message));
   await prisma.user.deleteMany({ where: { id: { in: userIds } } }).catch(() => {});
   await prisma.$disconnect();
 });

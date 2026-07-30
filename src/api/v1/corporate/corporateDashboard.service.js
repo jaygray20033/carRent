@@ -216,7 +216,7 @@ export const corporateDashboardService = {
     };
   },
 
-  /** Guard: only corporate admin (or OtoRent admin path). */
+  /** Guard: only corporate admin (or CarGoGo admin path). */
   assertAdmin(membership) {
     if (!membership?.isAdmin) {
       throw new ForbiddenError('Chỉ Corporate Admin được xem dashboard');

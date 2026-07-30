@@ -35,7 +35,7 @@ router.use(authenticate);
  *         vehicleId: { type: integer, example: 1 }
  *         pickup_at: { type: string, format: date-time, description: "ISO datetime, must be ≥ 2h from now" }
  *         return_at: { type: string, format: date-time, description: "ISO datetime, must be after pickup_at" }
- *         pickup_point: { type: string, example: "OtoRent HQ - Quận 2" }
+ *         pickup_point: { type: string, example: "CarGoGo HQ - Quận 2" }
  *         dropoff_point: { type: string, example: "Sân bay Tân Sơn Nhất" }
  *         rental_type: { type: string, enum: [SELF_DRIVE, WITH_DRIVER], default: SELF_DRIVE }
  *         premium_insurance: { type: boolean, default: false, description: "Apply the active PREMIUM insurance plan" }

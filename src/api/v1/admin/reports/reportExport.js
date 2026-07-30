@@ -21,7 +21,7 @@ const UTF8_BOM = String.fromCharCode(0xfeff);
 /** CSV: a header block + the per-period series + a method breakdown section. */
 export const exportRevenueCsv = (res, report) => {
   const rows = [
-    ['OtoRent — Báo cáo doanh thu'],
+    ['CarGoGo — Báo cáo doanh thu'],
     ['Từ', report.range.from, 'Đến', report.range.to, 'Nhóm', report.group],
     ['Tổng doanh thu', report.total, 'Số giao dịch', report.count],
     [],
@@ -41,13 +41,13 @@ export const exportRevenueCsv = (res, report) => {
 /** Excel: a summary sheet with the series table + a method breakdown table. */
 export const exportRevenueExcel = async (res, report) => {
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'OtoRent';
+  wb.creator = 'CarGoGo';
   wb.created = new Date();
 
   const ws = wb.addWorksheet('Doanh thu');
 
   ws.mergeCells('A1:C1');
-  ws.getCell('A1').value = 'OtoRent — Báo cáo doanh thu';
+  ws.getCell('A1').value = 'CarGoGo — Báo cáo doanh thu';
   ws.getCell('A1').font = { size: 14, bold: true };
 
   ws.addRow([]);
@@ -92,7 +92,7 @@ export const exportRevenuePdf = (res, report) =>
     res.on('finish', resolve);
     doc.pipe(res);
 
-    doc.fontSize(18).text('OtoRent — Bao cao doanh thu', { align: 'center' });
+    doc.fontSize(18).text('CarGoGo — Bao cao doanh thu', { align: 'center' });
     doc.moveDown(0.5);
     doc
       .fontSize(10)

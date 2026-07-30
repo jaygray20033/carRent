@@ -44,6 +44,17 @@ export const searchQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(20).optional(),
 });
 
+// GET /cars/:id/availability?from=&to= — booked-period lookup (UC-08/Day 10)
+export const availabilityQuerySchema = z
+  .object({
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+  })
+  .refine((v) => !(v.from && v.to) || v.to > v.from, {
+    message: 'to must be after from',
+    path: ['to'],
+  });
+
 export const createCarSchema = z.object({
   brandId: z.number().int(),
   modelId: z.number().int().optional(),

@@ -1,5 +1,5 @@
 // src/api/v1/corporate/corporateClient.service.js
-// B2B Day 2 — UC-61 Corporate Client CRUD (OtoRent Admin).
+// B2B Day 2 — UC-61 Corporate Client CRUD (CarGoGo Admin).
 import prisma from '../../../config/db.js';
 import {
   NotFoundError,
@@ -257,6 +257,7 @@ export const corporateClientService = {
     if (data.creditLimit !== undefined) patch.creditLimit = data.creditLimit;
     if (data.paymentTermDays !== undefined) patch.paymentTermDays = data.paymentTermDays;
     if (data.isActive !== undefined) patch.isActive = data.isActive;
+    if (data.autoApproveBookings !== undefined) patch.autoApproveBookings = data.autoApproveBookings;
     if (data.priceConfig !== undefined) {
       patch.priceConfig =
         typeof data.priceConfig === 'string'

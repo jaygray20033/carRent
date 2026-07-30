@@ -6,10 +6,10 @@ const options = {
   definition: {
     openapi: '3.0.0',
     info: {
-      title: 'OtoRent API',
+      title: 'CarGoGo API',
       version: '1.0.0',
       description: 'Hệ thống cho thuê xe ô tô - API Documentation',
-      contact: { name: 'OtoRent Team', email: 'contact@otorent.vn' },
+      contact: { name: 'CarGoGo Team', email: 'contact@CarGoGo.vn' },
     },
     servers: [{ url: `${env.APP_URL}${env.API_PREFIX}`, description: 'Development' }],
     components: {

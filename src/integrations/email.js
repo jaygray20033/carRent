@@ -20,10 +20,10 @@ const TEMPLATE_DIR = path.join(__dirname, '..', 'templates', 'email');
 
 // Default subjects per template (overridable via the `subject` option).
 const SUBJECTS = {
-  'booking-confirmed': 'Đặt xe thành công — OtoRent',
-  'payment-success': 'Thanh toán thành công — OtoRent',
-  'password-reset': 'Đặt lại mật khẩu — OtoRent',
-  otp: 'Mã xác thực OtoRent',
+  'booking-confirmed': 'Đặt xe thành công — CarGoGo',
+  'payment-success': 'Thanh toán thành công — CarGoGo',
+  'password-reset': 'Đặt lại mật khẩu — CarGoGo',
+  otp: 'Mã xác thực CarGoGo',
 };
 
 const compiledCache = new Map();
@@ -75,7 +75,7 @@ export async function sendEmail({ to, template, data = {}, subject, attachments 
     logger.warn(`sendEmail skipped: no recipient (template=${template})`);
     return { sent: false };
   }
-  const resolvedSubject = subject || SUBJECTS[template] || 'OtoRent';
+  const resolvedSubject = subject || SUBJECTS[template] || 'CarGoGo';
   const html = renderHtml(template, { ...data, subject: resolvedSubject }, resolvedSubject);
   const transport = getTransport();
   const attachmentCount = Array.isArray(attachments) ? attachments.length : 0;

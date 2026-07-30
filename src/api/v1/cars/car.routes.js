@@ -3,7 +3,7 @@ import { Router } from 'express';
 import { asyncHandler } from '../../../middlewares/asyncHandler.js';
 import { validate } from '../../../middlewares/validate.middleware.js';
 import { carController } from './car.controller.js';
-import { listCarsQuerySchema, searchQuerySchema } from './car.validator.js';
+import { listCarsQuerySchema, searchQuerySchema, availabilityQuerySchema } from './car.validator.js';
 import { reviewController } from '../reviews/review.controller.js';
 
 const router = Router();
@@ -136,6 +136,33 @@ router.get('/:id(\\d+)/similar', asyncHandler(carController.similar));
  *       200: { description: Paginated reviews for the vehicle }
  */
 router.get('/:id(\\d+)/reviews', asyncHandler(reviewController.listByVehicle));
+
+/**
+ * @swagger
+ * /cars/{id}/availability:
+ *   get:
+ *     tags: [Cars]
+ *     summary: Booked periods that occupy the vehicle (UC-08 date picker) — Day 10
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: from
+ *         schema: { type: string, format: date-time }
+ *       - in: query
+ *         name: to
+ *         schema: { type: string, format: date-time }
+ *     responses:
+ *       200: { description: "Array of { from, to, status } booked intervals" }
+ *       404: { description: Vehicle not found }
+ */
+router.get(
+  '/:id(\\d+)/availability',
+  validate(availabilityQuerySchema, 'query'),
+  asyncHandler(carController.availability)
+);
 
 /**
  * @swagger

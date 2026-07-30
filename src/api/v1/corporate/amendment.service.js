@@ -166,7 +166,7 @@ export const amendmentService = {
     return serialize(updated);
   },
 
-  /** OtoRent (Bên B) signs. */
+  /** CarGoGo (Bên B) signs. */
   async signB(corporateId, amendmentId) {
     const a = await prisma.contractAmendment.findFirst({
       where: { id: Number(amendmentId), corporateId: Number(corporateId) },
@@ -199,7 +199,7 @@ export const amendmentService = {
       data: { signedByA: true },
     });
 
-    // Notify OtoRent admins
+    // Notify CarGoGo admins
     const admins = await prisma.user.findMany({
       where: { status: 'ACTIVE', role: { code: 'ADMIN' } },
       select: { id: true },

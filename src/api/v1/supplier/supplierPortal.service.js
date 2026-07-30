@@ -1,6 +1,6 @@
 // Marketplace Phase C — supplier portal ops.
 // Supplier Admin: list/view dispatched bookings, assign driver, reject.
-// Supplier Member (driver): start (only after OtoRent released driver info), complete.
+// Supplier Member (driver): start (only after CarGoGo released driver info), complete.
 import prisma from '../../../config/db.js';
 import {
   NotFoundError,
@@ -11,6 +11,29 @@ import {
 import { stripBookingForSupplier } from '../../../constants/supplier.js';
 import { notificationService } from '../../../services/notificationService.js';
 import { buildCostSummary } from '../../../services/tripExpenseCalculator.js';
+import { settingsService } from '../../../services/settingsService.js';
+import { dispatchService } from '../admin/suppliers/dispatch.service.js';
+import { TRIP_EXPENSE_TYPES } from '../../../constants/corporatePricing.js';
+import logger from '../../../config/logger.js';
+
+// A driver can only add/remove trip expenses while the trip is live or the cost
+// is still being confirmed. After CONFIRMED/SETTLED/CANCELLED the ledger is frozen.
+const EXPENSE_OPEN_STATUSES = new Set(['IN_PROGRESS', 'PENDING_CONFIRM']);
+
+/**
+ * Global toggle (SiteSetting key `auto_release_driver_info`): when on, CarGoGo
+ * relays supplier-assigned driver info to the company automatically instead of
+ * waiting for an admin to release it manually. Defaults OFF.
+ */
+async function isAutoReleaseOn() {
+  try {
+    const map = await settingsService.getMap();
+    return String(map.auto_release_driver_info) === 'true';
+  } catch (err) {
+    logger.warn(`auto-release setting read failed: ${err.message}`);
+    return false;
+  }
+}
 
 const bookingInclude = {
   vehicle: {
@@ -92,7 +115,7 @@ export const supplierPortalService = {
         criticalViolationCount: membership.supplier.criticalViolationCount,
         terminationRisk: membership.supplier.terminationRisk,
         isActive: membership.supplier.isActive,
-        // Intentionally omit commissionRate — margin is OtoRent-only.
+        // Intentionally omit commissionRate — margin is CarGoGo-only.
       },
     };
   },
@@ -137,8 +160,8 @@ export const supplierPortalService = {
    * Supplier Admin assigns (or re-assigns) a driver.
    * - First assign: DISPATCHED → DRIVER_ASSIGNED
    * - Re-assign before release: DRIVER_ASSIGNED + driverInfoReleasedAt=null → overwrite
-   * - Re-assign after release: clear releasedDriverInfo, force OtoRent to re-release
-   * Never notifies the company — only OtoRent + the new driver.
+   * - Re-assign after release: clear releasedDriverInfo, force CarGoGo to re-release
+   * Never notifies the company — only CarGoGo + the new driver.
    */
   async assignDriver(membership, bookingId, { memberId, vehicleNote, licensePlate }) {
     if (!membership.isAdmin) {
@@ -181,7 +204,7 @@ export const supplierPortalService = {
       ? noteParts.join(' | ')
       : booking.supplierVehicleNote;
 
-    // Re-assign after release forces OtoRent to release again before DN sees the new driver.
+    // Re-assign after release forces CarGoGo to release again before DN sees the new driver.
     const wasReleased = Boolean(booking.driverInfoReleasedAt);
     const patch = {
       status: 'DRIVER_ASSIGNED',
@@ -208,7 +231,7 @@ export const supplierPortalService = {
         type: 'SUPPLIER_DRIVER_REASSIGNED',
         title: 'Supplier đổi tài xế — cần release lại cho DN',
         body: `Chuyến #${updated.id}: tài xế mới ${driverLabel} (${member.user?.phone}). Thông tin cũ đã thu hồi.`,
-        link: `/admin/corporate-bookings/${updated.id}`,
+        link: `/admin/corporate/bookings`,
       });
     } else {
       await notificationService.notifyRoles({
@@ -216,7 +239,7 @@ export const supplierPortalService = {
         type: 'SUPPLIER_DRIVER_ASSIGNED',
         title: 'Supplier đã gán tài xế — cần chuyển info cho DN',
         body: `Chuyến #${updated.id}: ${driverLabel} (${member.user?.phone}).`,
-        link: `/admin/corporate-bookings/${updated.id}`,
+        link: `/admin/corporate/bookings`,
       });
     }
 
@@ -230,12 +253,26 @@ export const supplierPortalService = {
       });
     }
 
+    // Global auto-release: if CarGoGo has turned on auto driver-info handoff,
+    // relay the assigned driver to the company immediately (no manual step),
+    // so the supplier can start the trip right away.
+    if (await isAutoReleaseOn()) {
+      try {
+        await dispatchService.releaseDriverInfo(updated.id, null);
+        const refreshed = await loadScopedBooking(membership, updated.id);
+        return stripBookingForSupplier(refreshed);
+      } catch (err) {
+        // Auto-release is best-effort; fall back to the manual CarGoGo step.
+        logger.warn(`auto-release driver info failed for #${updated.id}: ${err.message}`);
+      }
+    }
+
     return stripBookingForSupplier(updated);
   },
 
   /**
    * Supplier Admin rejects a DISPATCHED booking. Status → APPROVED, clears
-   * supplier fields so OtoRent can re-dispatch.
+   * supplier fields so CarGoGo can re-dispatch.
    */
   async reject(membership, bookingId, { reason }) {
     if (!membership.isAdmin) {
@@ -277,7 +314,7 @@ export const supplierPortalService = {
       type: 'SUPPLIER_BOOKING_REJECTED',
       title: 'Supplier từ chối chuyến',
       body: `Chuyến #${updated.id}: ${reason}`,
-      link: `/admin/corporate-bookings/${updated.id}`,
+      link: `/admin/corporate/bookings`,
     });
 
     return stripBookingForSupplier(updated);
@@ -285,7 +322,7 @@ export const supplierPortalService = {
 
   /**
    * Start trip. Allowed for the assigned driver (or supplier admin) once
-   * OtoRent has released the driver info (or self-fulfill with no supplier).
+   * CarGoGo has released the driver info (or self-fulfill with no supplier).
    * Status DRIVER_ASSIGNED | APPROVED → IN_PROGRESS.
    */
   async startTrip(membership, bookingId) {
@@ -307,7 +344,7 @@ export const supplierPortalService = {
     // trip can start (so the passenger can identify the car/driver).
     if (booking.supplierId && !booking.driverInfoReleasedAt) {
       throw new ConflictError(
-        'OtoRent chưa chuyển thông tin tài xế cho doanh nghiệp — không thể bắt đầu',
+        'CarGoGo chưa chuyển thông tin tài xế cho doanh nghiệp — không thể bắt đầu',
         'DRIVER_INFO_NOT_RELEASED'
       );
     }
@@ -323,7 +360,7 @@ export const supplierPortalService = {
       type: 'SUPPLIER_TRIP_STARTED',
       title: 'Chuyến supplier đã bắt đầu',
       body: `Chuyến #${updated.id} đang diễn ra.`,
-      link: `/admin/corporate-bookings/${updated.id}`,
+      link: `/admin/corporate/bookings`,
     });
 
     // White-label notify to company (no supplier name).
@@ -372,7 +409,7 @@ export const supplierPortalService = {
       type: 'SUPPLIER_TRIP_COMPLETED',
       title: 'Chuyến supplier đã hoàn thành',
       body: `Chuyến #${updated.id} chờ xác nhận chi phí.`,
-      link: `/admin/corporate-bookings/${updated.id}`,
+      link: `/admin/corporate/bookings`,
     });
 
     await notifyCompanyAboutTrip(updated, {
@@ -384,12 +421,78 @@ export const supplierPortalService = {
     return stripBookingForSupplier(updated);
   },
 
-  async costSummary(membership, bookingId) {
+  // ── Trip expenses (driver logs tolls, parking, overtime… on the road) ──
+  // Recorded by the assigned driver (or supplier admin). Only mutable while the
+  // trip is running or awaiting cost confirmation; admin approval (approvedByAdmin)
+  // happens on the CarGoGo side and locks the line from driver deletion.
+  async addExpense(membership, bookingId, data) {
     const booking = await loadScopedBooking(membership, bookingId);
-    // Supplier must not see OtoRent's margin. Return only expense lines, no totals
-    // that reveal basePrice. They see the operational expenses they recorded.
+    if (!membership.isAdmin && booking.supplierMemberId !== membership.id) {
+      throw new ForbiddenError('Bạn chỉ ghi chi phí cho chuyến được phân cho mình');
+    }
+    if (!EXPENSE_OPEN_STATUSES.has(booking.status)) {
+      throw new ConflictError(
+        `Chỉ ghi chi phí khi IN_PROGRESS/PENDING_CONFIRM (hiện: ${booking.status})`,
+        'INVALID_STATUS_TRANSITION'
+      );
+    }
+    if (!TRIP_EXPENSE_TYPES.includes(data.type)) {
+      throw new UnprocessableError('Loại chi phí không hợp lệ', 'INVALID_EXPENSE_TYPE');
+    }
+    const amount = Math.round(Number(data.amount));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new UnprocessableError('Số tiền phải > 0', 'INVALID_AMOUNT');
+    }
+
+    await prisma.tripExpense.create({
+      data: {
+        corporateBookingId: booking.id,
+        type: data.type,
+        amount,
+        description: data.description || null,
+        receiptUrl: data.receiptUrl || null,
+        recordedBy: 'driver',
+        approvedByAdmin: null, // pending CarGoGo review
+      },
+    });
+
+    const refreshed = await loadScopedBooking(membership, booking.id);
+    return this.buildExpenseView(refreshed);
+  },
+
+  async listExpenses(membership, bookingId) {
+    const booking = await loadScopedBooking(membership, bookingId);
+    return this.buildExpenseView(booking);
+  },
+
+  async deleteExpense(membership, bookingId, expenseId) {
+    const booking = await loadScopedBooking(membership, bookingId);
+    if (!membership.isAdmin && booking.supplierMemberId !== membership.id) {
+      throw new ForbiddenError('Bạn chỉ xoá chi phí cho chuyến được phân cho mình');
+    }
+    if (!EXPENSE_OPEN_STATUSES.has(booking.status)) {
+      throw new ConflictError('Chuyến đã khoá, không sửa chi phí', 'BOOKING_LOCKED');
+    }
+    const expense = await prisma.tripExpense.findFirst({
+      where: { id: Number(expenseId), corporateBookingId: booking.id },
+    });
+    if (!expense) throw new NotFoundError('Expense');
+    if (expense.recordedBy !== 'driver') {
+      throw new ForbiddenError('Chỉ xoá được chi phí do tài xế ghi');
+    }
+    if (expense.approvedByAdmin === true) {
+      throw new ConflictError('Không xoá được chi phí đã duyệt', 'EXPENSE_ALREADY_APPROVED');
+    }
+
+    await prisma.tripExpense.delete({ where: { id: expense.id } });
+    const refreshed = await loadScopedBooking(membership, booking.id);
+    return this.buildExpenseView(refreshed);
+  },
+
+  /** Shape a booking's expenses for the supplier UI (no basePrice / margin). */
+  buildExpenseView(booking) {
     const summary = buildCostSummary({
-      basePrice: 0, // hide base
+      basePrice: 0, // hide base — supplier must not see CarGoGo's margin
       expenses: booking.expenses || [],
       vasLines: [],
     });
@@ -397,6 +500,13 @@ export const supplierPortalService = {
       expenses: summary.expenses,
       expenseTotal: summary.expenseTotal,
     };
+  },
+
+  async costSummary(membership, bookingId) {
+    const booking = await loadScopedBooking(membership, bookingId);
+    // Supplier must not see CarGoGo's margin. Return only expense lines, no totals
+    // that reveal basePrice. They see the operational expenses they recorded.
+    return this.buildExpenseView(booking);
   },
 };
 

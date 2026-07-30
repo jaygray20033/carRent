@@ -18,7 +18,34 @@ const VIOLATION_REPORTABLE = new Set(['IN_PROGRESS', 'PENDING_CONFIRM', 'CONFIRM
 // Spec QA mentions COMPLETED — map to CONFIRMED/PENDING_CONFIRM in our status model.
 const SEVERITIES = new Set(['MINOR', 'MAJOR', 'CRITICAL']);
 
-async function notifyOtorentAdmins(payload) {
+// evidenceUrls is persisted as a JSON-array string. Keep write/read symmetric so a
+// stored value is ALWAYS valid JSON (or null) and reads never throw on a bad row —
+// one malformed record must not 500 a whole listing (e.g. the admin queue).
+function serializeEvidenceUrls(input) {
+  if (Array.isArray(input)) return input.length ? JSON.stringify(input) : null;
+  if (typeof input === 'string' && input.trim()) {
+    try {
+      const parsed = JSON.parse(input);
+      if (Array.isArray(parsed)) return parsed.length ? JSON.stringify(parsed) : null;
+    } catch {
+      // not pre-encoded JSON — fall through and treat as a single raw URL
+    }
+    return JSON.stringify([input]);
+  }
+  return null;
+}
+
+function parseEvidenceUrls(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    return [raw];
+  }
+}
+
+async function notifyCarGoGoAdmins(payload) {
   const admins = await prisma.user.findMany({
     where: { status: 'ACTIVE', role: { code: 'ADMIN' } },
     select: { id: true, email: true },
@@ -228,12 +255,7 @@ export const slaService = {
       throw new UnprocessableError('description bắt buộc', 'INVALID_DESCRIPTION');
     }
 
-    let evidenceUrls = null;
-    if (Array.isArray(data.evidenceUrls) && data.evidenceUrls.length) {
-      evidenceUrls = JSON.stringify(data.evidenceUrls);
-    } else if (typeof data.evidenceUrls === 'string' && data.evidenceUrls) {
-      evidenceUrls = data.evidenceUrls;
-    }
+    const evidenceUrls = serializeEvidenceUrls(data.evidenceUrls);
 
     const reportedBy = membership.isAdmin ? 'corporate_admin' : 'employee';
 
@@ -250,16 +272,16 @@ export const slaService = {
       include: { sla: true },
     });
 
-    await notifyOtorentAdmins({
+    await notifyCarGoGoAdmins({
       type: 'SLA_VIOLATION_REPORTED',
       title: `Vi phạm SLA booking #${booking.id}`,
       body: `[${severity}] ${sla.name}: ${description.slice(0, 120)}`,
-      link: `/admin/corporate-bookings/${booking.id}`,
+      link: `/admin/corporate/bookings`,
     }).catch(() => {});
 
     return {
       ...violation,
-      evidenceUrls: violation.evidenceUrls ? JSON.parse(violation.evidenceUrls) : [],
+      evidenceUrls: parseEvidenceUrls(violation.evidenceUrls),
     };
   },
 
@@ -282,12 +304,12 @@ export const slaService = {
     });
     return items.map((v) => ({
       ...v,
-      evidenceUrls: v.evidenceUrls ? JSON.parse(v.evidenceUrls) : [],
+      evidenceUrls: parseEvidenceUrls(v.evidenceUrls),
     }));
   },
 
   /**
-   * OtoRent Admin queue — all SLA reports submitted by enterprises.
+   * CarGoGo Admin queue — all SLA reports submitted by enterprises.
    * Default: pending confirmation (isConfirmed=false).
    */
   async adminListViolations({
@@ -351,7 +373,7 @@ export const slaService = {
     return {
       items: items.map((v) => ({
         ...v,
-        evidenceUrls: v.evidenceUrls ? JSON.parse(v.evidenceUrls) : [],
+        evidenceUrls: parseEvidenceUrls(v.evidenceUrls),
       })),
       total,
       page: Math.max(Number(page) || 1, 1),
@@ -395,7 +417,7 @@ export const slaService = {
     if (violation.severity === 'CRITICAL' && violation.booking.supplierId) {
       supplierRisk = await refreshSupplierTerminationRisk(violation.booking.supplierId);
       if (supplierRisk?.contractTerminationRisk) {
-        await notifyOtorentAdmins({
+        await notifyCarGoGoAdmins({
           type: 'SUPPLIER_TERMINATION_RISK',
           title: `Supplier #${supplierRisk.supplierId} — nguy cơ chấm dứt HĐ`,
           body: `Đã có ${supplierRisk.criticalCount} vi phạm CRITICAL. Không dispatch thêm cho nhà cung cấp này.`,
@@ -406,10 +428,10 @@ export const slaService = {
 
     // Auto-alert on CRITICAL confirm
     if (violation.severity === 'CRITICAL') {
-      const subject = `[OtoRent] Cảnh báo CRITICAL SLA — ${violation.booking.corporate?.name || 'Corporate'}`;
+      const subject = `[CarGoGo] Cảnh báo CRITICAL SLA — ${violation.booking.corporate?.name || 'Corporate'}`;
       const bodyText = `Vi phạm CRITICAL đã được xác nhận trên booking #${violation.booking.id}.\nSLA: ${violation.sla?.name}\nMô tả: ${violation.description}\n${flags.warningMessage || ''}`;
 
-      const otorentAdmins = await notifyOtorentAdmins({
+      const CarGoGoAdmins = await notifyCarGoGoAdmins({
         type: 'SLA_CRITICAL_CONFIRMED',
         title: subject,
         body: bodyText.slice(0, 400),
@@ -423,7 +445,7 @@ export const slaService = {
       });
 
       const recipients = [
-        ...otorentAdmins.map((a) => a.email).filter(Boolean),
+        ...CarGoGoAdmins.map((a) => a.email).filter(Boolean),
         ...corpAdmins.map((a) => a.user?.email).filter(Boolean),
         violation.booking.corporate?.contactEmail,
       ].filter(Boolean);
@@ -446,7 +468,7 @@ export const slaService = {
     return {
       violation: {
         ...updated,
-        evidenceUrls: updated.evidenceUrls ? JSON.parse(updated.evidenceUrls) : [],
+        evidenceUrls: parseEvidenceUrls(updated.evidenceUrls),
       },
       risk: flags,
       supplierRisk,

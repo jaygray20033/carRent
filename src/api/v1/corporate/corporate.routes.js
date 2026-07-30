@@ -9,6 +9,7 @@ import {
 } from '../../../middlewares/corporate.middleware.js';
 import { validate } from '../../../middlewares/validate.middleware.js';
 import { uploadImage, handleUploadError } from '../../../middlewares/upload.middleware.js';
+import { rateLimit } from '../../../middlewares/rateLimit.middleware.js';
 import { corporateController } from './corporate.controller.js';
 import {
   inviteEmployeeSchema,
@@ -16,8 +17,15 @@ import {
   updateEmployeeSchema,
   listEmployeesQuerySchema,
   employeeIdParamSchema,
+  createInviteLinkSchema,
+  inviteLinkIdParamSchema,
+  joinViaLinkSchema,
+  linkTokenParamSchema,
 } from './corporateEmployee.validator.js';
-import { selfRegisterCorporateSchema } from './corporateClient.validator.js';
+import {
+  selfRegisterCorporateSchema,
+  updateMyCompanySchema,
+} from './corporateClient.validator.js';
 import {
   createBookingSchema,
   listBookingsQuerySchema,
@@ -28,6 +36,7 @@ import {
   expenseIdParamSchema,
   approveExpenseSchema,
   completeBookingSchema,
+  confirmAndFinalizeSchema,
 } from './corporateBooking.validator.js';
 import {
   settlementIdParamSchema,
@@ -49,8 +58,24 @@ const amendmentIdOnlySchema = z.object({
 
 const router = Router();
 
+// ── Rate limiters (Redis-backed, per-IP; no-op when RATE_LIMIT_DISABLED) ──
+// Invites send email + create pending memberships — throttle to curb spam/abuse.
+const inviteLimiter = rateLimit({
+  max: 20,
+  windowSec: 3600,
+  keyPrefix: 'corp:invite',
+  message: 'Bạn đã gửi quá nhiều lời mời. Vui lòng thử lại sau một giờ.',
+});
+// Expense writes are frequent but still worth a generous per-minute ceiling.
+const expenseLimiter = rateLimit({
+  max: 30,
+  windowSec: 60,
+  keyPrefix: 'corp:expense',
+  message: 'Bạn thao tác chi phí quá nhanh. Vui lòng thử lại sau giây lát.',
+});
+
 // Self-registration — any authenticated user creates a company + becomes its admin.
-// Instant activation (no OtoRent approval). Blocks if already a member.
+// Instant activation (no CarGoGo approval). Blocks if already a member.
 router.post(
   '/self-register',
   authenticate,
@@ -66,12 +91,37 @@ router.post(
   corporateController.acceptInvite
 );
 
+// ── Shareable multi-use join link ──────────────────────────────────
+// Public preview — no auth. New users hit this before registering.
+router.get(
+  '/invite/link/:token',
+  validate(linkTokenParamSchema, 'params'),
+  corporateController.previewInviteLink
+);
+// Authenticated join — creates an ACTIVE employee row immediately.
+router.post(
+  '/invite/link/join',
+  authenticate,
+  validate(joinViaLinkSchema, 'body'),
+  corporateController.joinViaLink
+);
+
 // My company — any active corporate employee.
 router.get(
   '/me/company',
   authenticate,
   requireCorporateEmployee,
   corporateController.myCompany
+);
+
+// Corporate-admin self-service company settings (e.g. auto-approve toggle).
+// Self-scoped via req.corporate.id — no company id in the body.
+router.patch(
+  '/me/company',
+  authenticate,
+  requireCorporateAdmin,
+  validate(updateMyCompanySchema, 'body'),
+  corporateController.updateMyCompany
 );
 
 // Price config for booking form (Day 3).
@@ -124,6 +174,7 @@ router.get(
 router.post(
   '/me/company/employees',
   authenticate,
+  inviteLimiter,
   requireCorporateAdmin,
   validate(inviteEmployeeSchema, 'body'),
   corporateController.inviteEmployee
@@ -142,6 +193,37 @@ router.delete(
   requireCorporateAdmin,
   validate(employeeIdParamSchema, 'params'),
   corporateController.removeEmployee
+);
+router.post(
+  '/me/company/employees/:id/resend-invite',
+  authenticate,
+  inviteLimiter,
+  requireCorporateAdmin,
+  validate(employeeIdParamSchema, 'params'),
+  corporateController.resendEmployeeInvite
+);
+
+// Shareable join links — Corporate Admin manages.
+router.get(
+  '/me/company/invite-links',
+  authenticate,
+  requireCorporateAdmin,
+  corporateController.listInviteLinks
+);
+router.post(
+  '/me/company/invite-links',
+  authenticate,
+  inviteLimiter,
+  requireCorporateAdmin,
+  validate(createInviteLinkSchema, 'body'),
+  corporateController.createInviteLink
+);
+router.delete(
+  '/me/company/invite-links/:linkId',
+  authenticate,
+  requireCorporateAdmin,
+  validate(inviteLinkIdParamSchema, 'params'),
+  corporateController.revokeInviteLink
 );
 
 // ── Bookings (Day 3) ────────────────────────────────────────────────
@@ -194,6 +276,7 @@ router.put(
 router.post(
   '/bookings/:id/expenses',
   authenticate,
+  expenseLimiter,
   requireCorporateEmployee,
   validate(bookingIdParamSchema, 'params'),
   validate(addExpenseSchema, 'body'),
@@ -252,6 +335,15 @@ router.put(
   validate(bookingIdParamSchema, 'params'),
   corporateController.confirmCorporate
 );
+// Gộp Mức 1+2: admin xác nhận & chốt trong 1 bước, kèm chọn hình thức thanh toán.
+router.put(
+  '/bookings/:id/confirm-and-finalize',
+  authenticate,
+  requireCorporateAdmin,
+  validate(bookingIdParamSchema, 'params'),
+  validate(confirmAndFinalizeSchema, 'body'),
+  corporateController.confirmAndFinalize
+);
 router.get(
   '/bookings/:id/cost-summary',
   authenticate,
@@ -309,6 +401,13 @@ router.get(
   validate(settlementIdParamSchema, 'params'),
   corporateController.getSettlementCorporate
 );
+router.get(
+  '/settlements/:id/qr',
+  authenticate,
+  requireCorporateAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  corporateController.getSettlementQrCorporate
+);
 router.put(
   '/settlements/:id/confirm',
   authenticate,
@@ -323,6 +422,25 @@ router.put(
   validate(settlementIdParamSchema, 'params'),
   validate(disputeSettlementSchema, 'body'),
   corporateController.disputeSettlement
+);
+
+// Manual bank-transfer: corporate admin bấm "đã thanh toán" → báo admin OtoRent.
+router.put(
+  '/settlements/:id/declare-paid',
+  authenticate,
+  requireCorporateAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  corporateController.declareSettlementPaid
+);
+// Follow-up upload of the transfer-proof image (multipart field "image").
+router.post(
+  '/settlements/:id/proof',
+  authenticate,
+  requireCorporateAdmin,
+  validate(settlementIdParamSchema, 'params'),
+  uploadImage,
+  handleUploadError,
+  corporateController.uploadSettlementProof
 );
 
 // ── Dashboard & reports (Day 6) ─────────────────────────────────────

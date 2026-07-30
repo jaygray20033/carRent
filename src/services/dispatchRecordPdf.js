@@ -26,7 +26,7 @@ export function buildDispatchRecordPdf(record) {
     const b = record.booking || {};
     const f = record.financials || {};
 
-    doc.fontSize(18).text('OtoRent', { continued: false });
+    doc.fontSize(18).text('CarGoGo', { continued: false });
     doc.fontSize(13).text('LENH DIEU XE', { align: 'left' });
     doc.fontSize(10).text(`Ma lenh: ${record.dispatchRecordCode}`);
     doc.text(`Ngay phat hanh: ${dmy(record.issuedAt)}`);
@@ -62,15 +62,15 @@ export function buildDispatchRecordPdf(record) {
     }
     doc.moveDown(0.5);
 
-    doc.fontSize(11).text('4. Tai chinh (noi bo OtoRent):', { underline: true });
+    doc.fontSize(11).text('4. Tai chinh (noi bo CarGoGo):', { underline: true });
     doc.fontSize(10);
     doc.text(`Gia tri chuyen (finalAmount): ${fmt(f.finalAmount)}`);
     doc.text(`Ty le hoa hong: ${pct(f.commissionRate)}`);
-    doc.text(`Hoa hong OtoRent: ${fmt(f.commissionAmount)}`);
+    doc.text(`Hoa hong CarGoGo: ${fmt(f.commissionAmount)}`);
     doc.fontSize(11).text(`Payout cho supplier: ${fmt(f.supplierPayout)}`, { underline: true });
 
     doc.moveDown(2);
-    doc.fontSize(8).text(`Xuat luc: ${new Date().toISOString()} — OtoRent B2B Marketplace`, {
+    doc.fontSize(8).text(`Xuat luc: ${new Date().toISOString()} — CarGoGo B2B Marketplace`, {
       align: 'right',
     });
 

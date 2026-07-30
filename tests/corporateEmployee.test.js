@@ -485,3 +485,243 @@ describe('Invite unknown phone', () => {
     expect(res.body.data.inviteToken).toBeTruthy();
   });
 });
+
+// ── Shareable multi-use join link (Slack-style) ─────────────────────────
+describe('Corporate shareable join link', () => {
+  const joinUserIds = [];
+
+  const makeUser = async (suffix) => {
+    const u = await prisma.user.create({
+      data: {
+        roleId: customerRole.id,
+        fullName: `Link Joiner ${suffix}`,
+        phone: `09${suffix}${stamp}`.slice(0, 10),
+        email: `corpjoin_${suffix}_${stamp}@example.com`,
+        passwordHash: 'x',
+        status: 'ACTIVE',
+      },
+    });
+    joinUserIds.push(u.id);
+    return u;
+  };
+
+  afterAll(async () => {
+    if (joinUserIds.length) {
+      await prisma.corporateEmployee.deleteMany({ where: { userId: { in: joinUserIds } } }).catch(() => {});
+      await prisma.notification.deleteMany({ where: { userId: { in: joinUserIds } } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: { in: joinUserIds } } }).catch(() => {});
+    }
+    await prisma.corporateInviteLink.deleteMany({ where: { corporateId: companyA.id } }).catch(() => {});
+  });
+
+  test('Corporate Admin creates a shareable link → token returned, unused', async () => {
+    const res = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    expect(res.status).toBe(201);
+    expect(res.body.data.link.token).toBeTruthy();
+    expect(res.body.data.link.usedCount).toBe(0);
+    expect(res.body.data.link.isActive).toBe(true);
+    expect(res.body.data.link.defaultIsAdmin).toBe(false);
+  });
+
+  test('non-admin employee cannot create a link → 403', async () => {
+    const res = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${employeeA1Token}`)
+      .send({});
+    expect(res.status).toBe(403);
+  });
+
+  test('public preview (no auth) → valid + company name, no token leak', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const res = await request(app).get(`${BASE}/corporate/invite/link/${token}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.valid).toBe(true);
+    expect(res.body.data.company.id).toBe(companyA.id);
+    expect(res.body.data.company.name).toBeTruthy();
+    expect(res.body.data.token).toBeUndefined();
+  });
+
+  test('fresh user joins via link → ACTIVE employee, usedCount bumped', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('a');
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(200);
+    expect(res.body.data.employee.isActive).toBe(true);
+    expect(res.body.data.employee.corporateId).toBe(companyA.id);
+    expect(res.body.data.employee.userId).toBe(joiner.id);
+    expect(res.body.data.employee.isAdmin).toBe(false);
+
+    const link = await prisma.corporateInviteLink.findUnique({ where: { token } });
+    expect(link.usedCount).toBe(1);
+  });
+
+  test('same user joins the same link twice → idempotent, no double count', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('b');
+    const first = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(joiner.id)}`)
+      .send({ token });
+    expect(first.status).toBe(200);
+
+    const second = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(joiner.id)}`)
+      .send({ token });
+    expect(second.status).toBe(200);
+    expect(second.body.data.alreadyMember).toBe(true);
+
+    const link = await prisma.corporateInviteLink.findUnique({ where: { token } });
+    expect(link.usedCount).toBe(1);
+  });
+
+  test('link with defaultIsAdmin → joiner is a corporate admin', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({ defaultIsAdmin: true });
+    const token = created.body.data.link.token;
+
+    const joiner = await makeUser('c');
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(200);
+    expect(res.body.data.employee.isAdmin).toBe(true);
+  });
+
+  test('maxUses reached → 409 LINK_EXHAUSTED + preview reports exhausted', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({ maxUses: 1 });
+    const token = created.body.data.link.token;
+
+    const first = await makeUser('d');
+    const ok = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(first.id)}`)
+      .send({ token });
+    expect(ok.status).toBe(200);
+
+    const second = await makeUser('e');
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(second.id)}`)
+      .send({ token });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('LINK_EXHAUSTED');
+
+    const preview = await request(app).get(`${BASE}/corporate/invite/link/${token}`);
+    expect(preview.body.data.valid).toBe(false);
+    expect(preview.body.data.reason).toBe('EXHAUSTED');
+  });
+
+  test('expired link → 410 LINK_EXPIRED', async () => {
+    const { generateInviteToken } = await import('../src/utils/corporateInvite.js');
+    const token = generateInviteToken();
+    await prisma.corporateInviteLink.create({
+      data: {
+        corporateId: companyA.id,
+        token,
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    const joiner = await makeUser('f');
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(410);
+    expect(res.body.code).toBe('LINK_EXPIRED');
+  });
+
+  test('revoked link → preview invalid + join 409 LINK_REVOKED', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+    const linkId = created.body.data.link.id;
+
+    const del = await request(app)
+      .delete(`${BASE}/corporate/me/company/invite-links/${linkId}`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`);
+    expect(del.status).toBe(200);
+    expect(del.body.data.revoked).toBe(true);
+
+    const preview = await request(app).get(`${BASE}/corporate/invite/link/${token}`);
+    expect(preview.body.data.valid).toBe(false);
+    expect(preview.body.data.reason).toBe('REVOKED');
+
+    const joiner = await makeUser('g');
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(joiner.id)}`)
+      .send({ token });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('LINK_REVOKED');
+  });
+
+  test('join when already bound to another company → 409 ALREADY_MEMBER_OTHER_COMPANY', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    const token = created.body.data.link.token;
+
+    // Bind a fresh user to company B first.
+    const bound = await makeUser('h');
+    await prisma.corporateEmployee.create({
+      data: { corporateId: companyB.id, userId: bound.id, isActive: true },
+    });
+
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .set('Authorization', `Bearer ${signToken(bound.id)}`)
+      .send({ token });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('ALREADY_MEMBER_OTHER_COMPANY');
+  });
+
+  test('unauthenticated join → 401', async () => {
+    const created = await request(app)
+      .post(`${BASE}/corporate/me/company/invite-links`)
+      .set('Authorization', `Bearer ${corpAdminAToken}`)
+      .send({});
+    const res = await request(app)
+      .post(`${BASE}/corporate/invite/link/join`)
+      .send({ token: created.body.data.link.token });
+    expect(res.status).toBe(401);
+  });
+
+  test('preview a non-existent token → valid:false NOT_FOUND', async () => {
+    const res = await request(app).get(`${BASE}/corporate/invite/link/${'z'.repeat(40)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.valid).toBe(false);
+    expect(res.body.data.reason).toBe('NOT_FOUND');
+  });
+});

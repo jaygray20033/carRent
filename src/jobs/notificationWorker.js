@@ -12,7 +12,7 @@ import { bullConnection } from '../integrations/redis.js';
 import prisma from '../config/db.js';
 import logger from '../config/logger.js';
 import { sendEmail } from '../integrations/email.js';
-import { sendSms } from '../integrations/sms/twilio.adapter.js';
+import { sendSms } from '../integrations/sms/index.js';
 import { env } from '../config/env.js';
 
 const fmtMoney = (n) => Number(n || 0).toLocaleString('vi-VN');
@@ -57,7 +57,7 @@ export async function handleBookingConfirmed({ bookingId, channels = ['email'] }
   if (channels.includes('sms') && user?.phone) {
     await sendSms({
       to: user.phone,
-      message: `OtoRent: Don ${booking.bookingCode} da duoc xac nhan. Tong: ${fmtMoney(
+      message: `CarGoGo: Don ${booking.bookingCode} da duoc xac nhan. Tong: ${fmtMoney(
         booking.totalAmount
       )}d. Xem chi tiet tai ${bookingUrl}`,
     });
@@ -75,7 +75,7 @@ export async function handleBookingCancelled({ bookingId, channels = ['email'] }
     await sendEmail({
       to: user.email,
       template: 'payment-success',
-      subject: `Đơn ${booking.bookingCode} đã bị huỷ — OtoRent`,
+      subject: `Đơn ${booking.bookingCode} đã bị huỷ — CarGoGo`,
       data: {
         fullName: user.fullName,
         bookingCode: booking.bookingCode,

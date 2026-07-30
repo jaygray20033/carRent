@@ -18,6 +18,7 @@ import dayjs from 'dayjs';
 const { default: app } = await import('../src/app.js');
 const { default: prisma } = await import('../src/config/db.js');
 const { env } = await import('../src/config/env.js');
+const { settingsService } = await import('../src/services/settingsService.js');
 
 const BASE = env.API_PREFIX; // /api/v1
 const stamp = Date.now().toString().slice(-7);
@@ -26,6 +27,13 @@ const signToken = (userId) =>
   jwt.sign({ userId }, env.JWT_ACCESS_SECRET, { expiresIn: '15m' });
 
 const PRICE_PER_DAY = 1_000_000;
+const DEPOSIT = 3_000_000; // explicit vehicle deposit → deterministic totals
+
+// Pricing knobs are read from settings at runtime so the expected numbers stay
+// correct regardless of what other suites may have written to tax_rate etc.
+let pricing;
+// Same-point pickup/dropoff → no dropoff penalty; self-drive → no driver fee.
+const tax = (base) => Math.round((base * pricing.taxRate) / 100);
 
 let customerRole;
 let user;
@@ -72,9 +80,12 @@ beforeAll(async () => {
       modelYear: 2024,
       licensePlate: `99T-${stamp}`,
       pricePerDay: PRICE_PER_DAY,
+      depositAmount: DEPOSIT,
       status: 'AVAILABLE',
     },
   });
+
+  pricing = await settingsService.getPricingConfig();
 
   // Percent-based premium plan (10% of base price).
   premiumPlan = await prisma.insurancePlan.upsert({
@@ -135,9 +146,14 @@ describe('Booking flow — draft → insurance → coupon → confirm (UC-14/15/
     expect(b.totalDays).toBe(2);
     expect(b.pricePerDay).toBe(PRICE_PER_DAY);
     expect(b.insuranceFee).toBe(0);
-    expect(b.subtotal).toBe(2_000_000);
+    expect(b.driverFee).toBe(0); // self-drive
+    expect(b.dropoffPenalty).toBe(0); // same pickup/dropoff point
+    expect(b.taxAmount).toBe(tax(2_000_000)); // tax on base price
+    expect(b.depositAmount).toBe(DEPOSIT);
+    // subtotal = base + tax; total = subtotal − discount + deposit
+    expect(b.subtotal).toBe(2_000_000 + tax(2_000_000));
     expect(b.couponDiscount).toBe(0);
-    expect(b.totalAmount).toBe(2_000_000);
+    expect(b.totalAmount).toBe(2_000_000 + tax(2_000_000) + DEPOSIT);
   });
 
   it('UC-15: applies the premium insurance plan and recomputes the price', async () => {
@@ -150,9 +166,10 @@ describe('Booking flow — draft → insurance → coupon → confirm (UC-14/15/
     const b = res.body.data;
     expect(b.insurancePlanId).toBe(premiumPlan.id);
     expect(b.insuranceFee).toBe(200_000); // 10% of 2,000,000
-    expect(b.subtotal).toBe(2_200_000);
+    // subtotal = base + insurance + tax(base); tax is on base+driver only.
+    expect(b.subtotal).toBe(2_000_000 + 200_000 + tax(2_000_000));
     expect(b.couponDiscount).toBe(0);
-    expect(b.totalAmount).toBe(2_200_000);
+    expect(b.totalAmount).toBe(2_000_000 + 200_000 + tax(2_000_000) + DEPOSIT);
   });
 
   it('UC-16: validates a FIXED coupon against the booking', async () => {
@@ -177,9 +194,11 @@ describe('Booking flow — draft → insurance → coupon → confirm (UC-14/15/
     const b = res.body.data;
     expect(b.status).toBe('PENDING_PAYMENT');
     expect(b.insuranceFee).toBe(200_000);
-    expect(b.subtotal).toBe(2_200_000);
+    const subtotal = 2_000_000 + 200_000 + tax(2_000_000);
+    expect(b.subtotal).toBe(subtotal);
     expect(b.couponDiscount).toBe(50_000);
-    expect(b.totalAmount).toBe(2_150_000); // 2,200,000 − 50,000
+    // total = subtotal − discount + deposit
+    expect(b.totalAmount).toBe(subtotal - 50_000 + DEPOSIT);
 
     // A CouponUsage row must have been recorded for this user/booking.
     const usage = await prisma.couponUsage.findFirst({

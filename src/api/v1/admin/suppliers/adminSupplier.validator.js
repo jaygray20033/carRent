@@ -80,6 +80,25 @@ export const acceptSupplierInviteSchema = z.object({
   token: z.string().trim().min(8).max(128),
 });
 
+// ── Shareable multi-use join link ──────────────────────────────────
+export const createSupplierInviteLinkSchema = z.object({
+  maxUses: z.coerce.number().int().positive().max(10000).optional().nullable(),
+  expiresInHours: z.coerce.number().int().positive().max(8760).optional().nullable(),
+  defaultIsAdmin: z.boolean().optional().default(false),
+});
+
+export const supplierInviteLinkIdParamSchema = z.object({
+  linkId: z.coerce.number().int().positive(),
+});
+
+export const joinSupplierViaLinkSchema = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
+export const supplierLinkTokenParamSchema = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
 // ── Supplier settlement / payout (Phase E) ──────────────────────────
 export const createSupplierSettlementSchema = z.object({
   periodStart: z.coerce.date(),
@@ -140,6 +159,10 @@ export default {
   recallSchema,
   releaseDriverInfoSchema,
   acceptSupplierInviteSchema,
+  createSupplierInviteLinkSchema,
+  supplierInviteLinkIdParamSchema,
+  joinSupplierViaLinkSchema,
+  supplierLinkTokenParamSchema,
   supplierSettlementIdParamSchema,
   adminSupplierSettlementParamSchema,
   createSupplierSettlementSchema,

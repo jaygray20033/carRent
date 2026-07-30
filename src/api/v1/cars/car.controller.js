@@ -36,6 +36,16 @@ export const carController = {
     return success(res, { car });
   },
 
+  // GET /cars/:id/availability?from=&to= — booked periods for the date picker
+  availability: async (req, res) => {
+    const periods = await carService.getAvailability(req.params.id, {
+      from: req.query.from,
+      to: req.query.to,
+    });
+    res.set('Cache-Control', 'public, max-age=60');
+    return success(res, { periods });
+  },
+
   // GET /cars/:id/similar — related cars (same category or brand)
   similar: async (req, res) => {
     const limit = req.query.limit ? Math.min(Number(req.query.limit), 12) : 4;

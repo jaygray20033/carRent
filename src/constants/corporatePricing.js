@@ -52,7 +52,7 @@ export const CORPORATE_BOOKING_STATUSES = [
   'PENDING',
   'APPROVED',
   'DISPATCHED', // đã chuyển supplier, chờ họ gán tài xế
-  'DRIVER_ASSIGNED', // supplier đã gán tài xế, chờ OtoRent chuyển info cho DN
+  'DRIVER_ASSIGNED', // supplier đã gán tài xế, chờ CarGoGo chuyển info cho DN
   'IN_PROGRESS',
   'PENDING_CONFIRM',
   'CONFIRMED',

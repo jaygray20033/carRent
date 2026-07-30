@@ -46,10 +46,33 @@ export const employeeIdParamSchema = z.object({
   id: z.coerce.number().int().positive(),
 });
 
+// ── Shareable multi-use join link ──────────────────────────────────
+export const createInviteLinkSchema = z.object({
+  maxUses: z.coerce.number().int().positive().max(10000).optional().nullable(),
+  expiresInHours: z.coerce.number().int().positive().max(8760).optional().nullable(),
+  defaultIsAdmin: z.boolean().optional().default(false),
+});
+
+export const inviteLinkIdParamSchema = z.object({
+  linkId: z.coerce.number().int().positive(),
+});
+
+export const joinViaLinkSchema = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
+export const linkTokenParamSchema = z.object({
+  token: z.string().trim().min(16).max(128),
+});
+
 export default {
   inviteEmployeeSchema,
   acceptInviteSchema,
   updateEmployeeSchema,
   listEmployeesQuerySchema,
   employeeIdParamSchema,
+  createInviteLinkSchema,
+  inviteLinkIdParamSchema,
+  joinViaLinkSchema,
+  linkTokenParamSchema,
 };

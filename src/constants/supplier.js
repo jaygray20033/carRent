@@ -1,9 +1,9 @@
 // Marketplace supplier constants.
-// OtoRent acts as intermediary: Company books → Admin dispatches to a Supplier
+// CarGoGo acts as intermediary: Company books → Admin dispatches to a Supplier
 // (white-label, hidden from the company) → Supplier assigns a driver → driver
 // info is relayed back to the company only after an explicit release.
 
-/** Default OtoRent commission rate when a supplier has none set. */
+/** Default CarGoGo commission rate when a supplier has none set. */
 export const DEFAULT_COMMISSION_RATE = 0.15;
 
 /**
@@ -30,8 +30,8 @@ export const SUPPLIER_ONLY_BOOKING_FIELDS = [
 ];
 
 /**
- * Fields that reveal OtoRent's margin — must never reach the SUPPLIER either.
- * The supplier sees a plain fulfillment order, not what OtoRent earns on it.
+ * Fields that reveal CarGoGo's margin — must never reach the SUPPLIER either.
+ * The supplier sees a plain fulfillment order, not what CarGoGo earns on it.
  */
 export const MARGIN_ONLY_BOOKING_FIELDS = [
   'commissionRate',
@@ -69,7 +69,7 @@ export function stripBookingForCorporate(booking) {
 
 /**
  * Strip margin + the corporate client's identity before returning a booking to
- * a SUPPLIER caller. The supplier fulfils an anonymous OtoRent order.
+ * a SUPPLIER caller. The supplier fulfils an anonymous CarGoGo order.
  */
 export function stripBookingForSupplier(booking) {
   if (!booking) return booking;

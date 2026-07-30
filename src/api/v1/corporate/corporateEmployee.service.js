@@ -12,6 +12,7 @@ import {
   generateInviteToken,
   isInviteExpired,
   inviteExpiresAt,
+  inviteLinkStatus,
 } from '../../../utils/corporateInvite.js';
 import { notificationService } from '../../../services/notificationService.js';
 import { enqueueSendOtp } from '../../../integrations/sms.js';
@@ -28,6 +29,7 @@ const employeeInclude = {
       taxCode: true,
       contractRef: true,
       isActive: true,
+      autoApproveBookings: true,
       creditLimit: true,
       paymentTermDays: true,
       priceConfig: true,
@@ -75,6 +77,17 @@ export const corporateEmployeeService = {
       membership: serializeEmployee(membership),
       company: serializeEmployee(membership).corporate,
     };
+  },
+
+  // Corporate-admin self-service company settings. Scoped to req.corporate.id
+  // (passed in) so a company can only edit itself; limited to the safe toggles
+  // in updateMyCompanySchema — contract/credit terms stay CarGoGo-admin-only.
+  async updateMyCompany(corporateId, { autoApproveBookings }) {
+    const company = await prisma.corporateClient.update({
+      where: { id: Number(corporateId) },
+      data: { autoApproveBookings },
+    });
+    return { company: serializeEmployee({ corporate: company }).corporate };
   },
 
   async listEmployees(corporateId, { q, isActive, page = 1, size = 20 } = {}) {
@@ -205,6 +218,32 @@ export const corporateEmployeeService = {
     return { employee: publicEmployee(employee), inviteToken: token };
   },
 
+  /**
+   * Re-issue + re-send the invite for a still-pending employee row.
+   * Rejects rows that are already active or whose invite was consumed.
+   */
+  async resendInvite(corporateId, employeeId) {
+    const employee = await prisma.corporateEmployee.findFirst({
+      where: { id: Number(employeeId), corporateId: Number(corporateId) },
+      include: { corporate: true, user: { select: { id: true, phone: true, email: true } } },
+    });
+    if (!employee) throw new NotFoundError('Employee');
+    if (employee.isActive || employee.inviteUsedAt) {
+      throw new ConflictError('Nhân viên đã tham gia, không cần gửi lại', 'INVITE_ALREADY_USED');
+    }
+
+    const token = generateInviteToken();
+    const updated = await prisma.corporateEmployee.update({
+      where: { id: employee.id },
+      data: { inviteToken: token, inviteExpiresAt: inviteExpiresAt() },
+      include: {
+        user: { select: { id: true, fullName: true, email: true, phone: true } },
+      },
+    });
+    await dispatchInvite({ employee: updated, token, corporate: employee.corporate });
+    return { employee: publicEmployee(updated), inviteToken: token };
+  },
+
   async acceptInvite({ token }, userId) {
     if (!token) throw new UnprocessableError('Thiếu invite token', 'INVITE_TOKEN_REQUIRED');
 
@@ -226,11 +265,13 @@ export const corporateEmployeeService = {
       throw new ForbiddenError('Invite không dành cho tài khoản này');
     }
 
-    // Ensure user is not already in another company
+    // Ensure user is not already bound to another company row. userId is globally
+    // @unique, so ANY other row holding this userId (even an inactive/dangling
+    // invite) makes the update below violate the constraint — catch it here as a
+    // clean 409 instead of letting Prisma P2002 surface as a 500.
     const other = await prisma.corporateEmployee.findFirst({
       where: {
         userId: Number(userId),
-        isActive: true,
         id: { not: employee.id },
       },
     });
@@ -257,7 +298,7 @@ export const corporateEmployeeService = {
       type: 'CORPORATE_INVITE_ACCEPTED',
       title: 'Tham gia công ty thành công',
       body: `Bạn đã tham gia ${employee.corporate?.name || 'công ty'}.`,
-      link: '/corporate',
+      link: '/enterprise',
     }).catch(() => {});
 
     return serializeEmployee(updated);
@@ -318,6 +359,156 @@ export const corporateEmployeeService = {
     });
     return { id: removed.id, deleted: true };
   },
+
+  // ── Shareable multi-use join link (Slack-style) ──────────────────────
+  // One link, many joiners; each join creates an ACTIVE employee row.
+
+  async createInviteLink(corporateId, { maxUses, expiresInHours, defaultIsAdmin = false } = {}, createdBy) {
+    const corporate = await prisma.corporateClient.findUnique({
+      where: { id: Number(corporateId) },
+    });
+    if (!corporate) throw new NotFoundError('Corporate client');
+    if (!corporate.isActive) {
+      throw new ConflictError('Công ty đang tạm ngưng', 'CLIENT_INACTIVE');
+    }
+
+    const token = generateInviteToken();
+    const expiresAt =
+      expiresInHours != null
+        ? new Date(Date.now() + Number(expiresInHours) * 3600_000)
+        : null;
+
+    const link = await prisma.corporateInviteLink.create({
+      data: {
+        corporateId: Number(corporateId),
+        token,
+        defaultIsAdmin: Boolean(defaultIsAdmin),
+        maxUses: maxUses != null ? Number(maxUses) : null,
+        expiresAt,
+        createdBy: createdBy != null ? Number(createdBy) : null,
+      },
+    });
+    return link;
+  },
+
+  async listInviteLinks(corporateId) {
+    return prisma.corporateInviteLink.findMany({
+      where: { corporateId: Number(corporateId) },
+      orderBy: { createdAt: 'desc' },
+    });
+  },
+
+  async revokeInviteLink(corporateId, linkId) {
+    const link = await prisma.corporateInviteLink.findFirst({
+      where: { id: Number(linkId), corporateId: Number(corporateId) },
+    });
+    if (!link) throw new NotFoundError('Invite link');
+    await prisma.corporateInviteLink.update({
+      where: { id: link.id },
+      data: { isActive: false },
+    });
+    return { id: link.id, revoked: true };
+  },
+
+  /** Public preview — no auth. Returns company name + link validity (no token leak). */
+  async previewInviteLink(token) {
+    const link = await prisma.corporateInviteLink.findUnique({
+      where: { token: String(token) },
+      include: { corporate: { select: { id: true, name: true, isActive: true } } },
+    });
+    const status = inviteLinkStatus(link);
+    if (!status.valid) {
+      return { valid: false, reason: status.reason };
+    }
+    if (!link.corporate?.isActive) {
+      return { valid: false, reason: 'CLIENT_INACTIVE' };
+    }
+    return {
+      valid: true,
+      company: { id: link.corporate.id, name: link.corporate.name },
+      defaultIsAdmin: link.defaultIsAdmin,
+    };
+  },
+
+  /** Authenticated join. Creates an ACTIVE employee row and bumps usedCount atomically. */
+  async joinViaLink(token, userId) {
+    const link = await prisma.corporateInviteLink.findUnique({
+      where: { token: String(token) },
+      include: { corporate: true },
+    });
+    const status = inviteLinkStatus(link);
+    if (!status.valid) {
+      if (status.reason === 'EXPIRED') throw new GoneError('Link đã hết hạn', 'LINK_EXPIRED');
+      if (status.reason === 'EXHAUSTED') {
+        throw new ConflictError('Link đã đạt số lượt tối đa', 'LINK_EXHAUSTED');
+      }
+      if (status.reason === 'REVOKED') {
+        throw new ConflictError('Link đã bị thu hồi', 'LINK_REVOKED');
+      }
+      throw new NotFoundError('Invite link');
+    }
+    if (!link.corporate?.isActive) {
+      throw new ConflictError('Công ty đang tạm ngưng', 'CLIENT_INACTIVE');
+    }
+
+    // Already a member of THIS company? Idempotent — return existing membership.
+    const existing = await prisma.corporateEmployee.findFirst({
+      where: { corporateId: link.corporateId, userId: Number(userId) },
+      include: employeeInclude,
+    });
+    if (existing) {
+      if (existing.isActive) return { employee: serializeEmployee(existing), alreadyMember: true };
+      // Reactivate a soft-removed row for the same company.
+      const reactivated = await prisma.corporateEmployee.update({
+        where: { id: existing.id },
+        data: { isActive: true, inviteUsedAt: new Date() },
+        include: employeeInclude,
+      });
+      await prisma.corporateInviteLink.update({
+        where: { id: link.id },
+        data: { usedCount: { increment: 1 } },
+      });
+      return { employee: serializeEmployee(reactivated) };
+    }
+
+    // Bound to another company? userId is globally @unique on CorporateEmployee.
+    const elsewhere = await prisma.corporateEmployee.findUnique({
+      where: { userId: Number(userId) },
+    });
+    if (elsewhere) {
+      throw new ConflictError('Bạn đã thuộc một công ty khác', 'ALREADY_MEMBER_OTHER_COMPANY');
+    }
+
+    const employee = await prisma.$transaction(async (tx) => {
+      const created = await tx.corporateEmployee.create({
+        data: {
+          corporateId: link.corporateId,
+          userId: Number(userId),
+          isAdmin: link.defaultIsAdmin,
+          isActive: true,
+          inviteUsedAt: new Date(),
+        },
+        include: employeeInclude,
+      });
+      await tx.corporateInviteLink.update({
+        where: { id: link.id },
+        data: { usedCount: { increment: 1 } },
+      });
+      return created;
+    });
+
+    await notificationService
+      .notify({
+        userId: Number(userId),
+        type: 'CORPORATE_INVITE_ACCEPTED',
+        title: 'Tham gia công ty thành công',
+        body: `Bạn đã tham gia ${link.corporate?.name || 'công ty'}.`,
+        link: '/enterprise',
+      })
+      .catch(() => {});
+
+    return { employee: serializeEmployee(employee) };
+  },
 };
 
 function publicEmployee(emp) {
@@ -350,7 +541,7 @@ async function dispatchInvite({ employee, token, corporate, phone, email }) {
     try {
       await sendEmail({
         to: targetEmail,
-        subject: `Lời mời tham gia ${corporate.name} — OtoRent B2B`,
+        subject: `Lời mời tham gia ${corporate.name} — CarGoGo B2B`,
         template: 'otp', // reuse simple template; body carries invite details
         data: {
           code: token.slice(0, 8),
