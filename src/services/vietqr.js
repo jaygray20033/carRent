@@ -45,8 +45,17 @@ export function buildSettlementQr(settlement) {
     `&addInfo=${encodeURIComponent(memo)}` +
     `&accountName=${encodeURIComponent(accountName)}`;
 
+  // VietQR deeplink for mobile App2App (opens banking app directly)
+  const deeplink =
+    `https://dl.vietqr.io/pay` +
+    `?bank=${bin}` +
+    `&acc=${account}` +
+    `&amount=${amount}` +
+    `&memo=${encodeURIComponent(memo)}`;
+
   return {
     qrImageUrl,
+    deeplink,
     accountNumber: account,
     accountName,
     bank: env.SETTLEMENT_BANK_NAME,
