@@ -2,33 +2,60 @@
 import { authService } from './auth.service.js';
 import { success, created } from '../../../utils/apiResponse.js';
 
+const reqMeta = (req) => ({
+  ipAddress: req.ip || req.headers['x-forwarded-for'] || null,
+  deviceInfo: req.headers['user-agent'] || null,
+});
+
 export const authController = {
+  // UC-01
   register: async (req, res) => {
     const data = await authService.register(req.body);
-    return created(res, data, 'Registered successfully');
+    return created(res, data, 'Registered successfully. OTP sent.');
   },
 
+  // UC-02
   login: async (req, res) => {
-    const data = await authService.login(req.body);
+    const data = await authService.login(req.body, reqMeta(req));
     return success(res, data, 'Login successful');
   },
 
-  refreshToken: async (req, res) => {
-    const data = await authService.refreshToken(req.body);
-    return success(res, data, 'Token refreshed');
-  },
-
-  logout: async (_req, res) => {
-    // Stateless JWT — production: revoke refresh token in DB/Redis
-    return success(res, {}, 'Logged out');
-  },
-
+  // UC-03
   verifyOtp: async (req, res) => {
     const data = await authService.verifyOtp(req.body);
     return success(res, data, 'OTP verified');
+  },
+
+  resendOtp: async (req, res) => {
+    const data = await authService.resendOtp(req.body);
+    return success(res, data, 'OTP resent');
+  },
+
+  refreshToken: async (req, res) => {
+    const data = await authService.refreshToken(req.body, reqMeta(req));
+    return success(res, data, 'Token refreshed');
+  },
+
+  logout: async (req, res) => {
+    const data = await authService.logout(req.body || {});
+    return success(res, data, 'Logged out');
+  },
+
+  // UC-04 — Forgot password (anti-enumeration: always 200 OK)
+  forgotPassword: async (req, res) => {
+    const data = await authService.forgotPassword(req.body);
+    return success(res, data, 'If an account exists, a reset OTP has been sent.');
+  },
+
+  // UC-04 — Reset password (verify OTP + set new password + revoke all sessions)
+  resetPassword: async (req, res) => {
+    const data = await authService.resetPassword(req.body);
+    return success(res, data, 'Password reset successfully');
   },
 
   me: async (req, res) => {
     return success(res, { user: req.user }, 'Current user');
   },
 };
+
+export default authController;

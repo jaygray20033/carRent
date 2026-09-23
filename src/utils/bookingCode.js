@@ -1,9 +1,18 @@
-// src/utils/bookingCode.js
-import { v4 as uuidv4 } from 'uuid';
+// src/utils/bookingCode.js (ESM)
+import dayjs from 'dayjs';
 
-export const generateBookingCode = () => {
-  const prefix = 'BK';
-  const ymd = new Date().toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
-  const rand = uuidv4().replace(/-/g, '').slice(0, 6).toUpperCase();
-  return `${prefix}${ymd}${rand}`;
-};
+// Unambiguous alphabet — excludes O, 0, 1, I to avoid human/OCR confusion.
+const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function randomPart(length = 5) {
+  let out = '';
+  for (let i = 0; i < length; i++) {
+    out += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
+  }
+  return out;
+}
+
+export function generateBookingCode() {
+  const datePart = dayjs().format('YYYYMMDD');
+  return `OTR-${datePart}-${randomPart(5)}`;
+}

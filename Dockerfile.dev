@@ -1,0 +1,19 @@
+# CarRent Backend — DEV image (hot reload via nodemon)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install dependencies first (better layer caching)
+COPY package*.json ./
+RUN npm install
+
+# Prisma schema needed for `prisma generate`
+COPY prisma ./prisma
+
+# Copy the rest of the source
+COPY . .
+
+EXPOSE 4000
+
+# Generate client then start dev server (overridable by compose `command`)
+CMD ["sh", "-c", "npx prisma generate && npm run dev"]
